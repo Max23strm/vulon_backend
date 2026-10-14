@@ -1,3 +1,4 @@
+-- Active: 1788559734175@@localhost@5432
 # vulon_backend
 
 API REST en Go para la gestión administrativa de clubes deportivos. Permite administrar jugadores, eventos, asistencia, pagos, gastos y usuarios, con autenticación por JWT y reportes en Excel.

@@ -40,9 +40,15 @@ func GetTeamsByEntityHandler(w http.ResponseWriter, r *http.Request) {
 				AND pa.delete_flag = 0
 			) AS players_assigned,
 			COALESCE(
-				array_agg(tc.description ORDER BY tc.description)
+				json_agg(
+					json_build_object(
+						'category_uid', tc.category_uid,
+						'name', tc.description
+					)
+					ORDER BY tc.description
+				)
 				FILTER (WHERE tc.category_uid IS NOT NULL),
-				ARRAY[]::VARCHAR[]
+				'[]'::JSON
 			) AS categories
 		FROM entity_teams AS t
 		INNER JOIN entities AS e
@@ -75,6 +81,7 @@ func GetTeamsByEntityHandler(w http.ResponseWriter, r *http.Request) {
 
 	for datos.Next() {
 		dato := models.Team{}
+		var categoriesJSON []byte
 
 		err := datos.Scan(
 			&dato.Team_uid,
@@ -82,12 +89,21 @@ func GetTeamsByEntityHandler(w http.ResponseWriter, r *http.Request) {
 			&dato.Entity_uid,
 			&dato.Entity_name,
 			&dato.Players_assigned,
-			pq.Array(&dato.Categories),
+			&categoriesJSON,
 		)
 		if err != nil {
 			helpers.BadRequestResponse(
 				w,
 				"Error scanning teams",
+				err,
+				"DATA_ERROR",
+			)
+			return
+		}
+		if err := json.Unmarshal(categoriesJSON, &dato.Categories); err != nil {
+			helpers.BadRequestResponse(
+				w,
+				"Error decoding team categories",
 				err,
 				"DATA_ERROR",
 			)
@@ -213,16 +229,18 @@ func GetTemsByIdHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func NewTeamHandler(w http.ResponseWriter, r *http.Request) {
-	if !validations.ValidateContext(w, r) {
+	userUID, ok := r.Context().Value("userID").(string)
+	if !ok || userUID == "" {
+		helpers.UnauthorizedResponse(w, "Usuario no autenticado")
 		return
 	}
-	var team models.TeamPost
+	var teamCreate models.TeamPost
 	//FALTA IMPLEMENTAR EL RESTO
-	if err := json.NewDecoder(r.Body).Decode(&team); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&teamCreate); err != nil {
 		helpers.BadRequestResponse(w, "Error obtaining data", err, "ERROR_DATA")
 		return
 	}
-	validationErrors := validations.TeamsPostValidations(team)
+	validationErrors := validations.TeamsPostValidations(teamCreate)
 
 	if len(validationErrors) > 0 {
 		message := strings.Join(validationErrors, ", ")
@@ -239,7 +257,7 @@ func NewTeamHandler(w http.ResponseWriter, r *http.Request) {
 	new_uuid := uuid.New()
 	teamSQL := "INSERT INTO \"entity_teams\"( team_uid, \"description\", \"entity_uid\") VALUES ($1, $2, $3)"
 
-	_, err := db.DB.Exec(teamSQL, new_uuid.String(), team.Description, team.Entity_uid)
+	_, err := db.DB.Exec(teamSQL, new_uuid.String(), teamCreate.Description, teamCreate.Entity_uid)
 
 	if err != nil {
 		helpers.BadRequestResponse(
@@ -255,6 +273,30 @@ func NewTeamHandler(w http.ResponseWriter, r *http.Request) {
 		"team_uid": new_uuid.String(),
 	}
 	helpers.CreatedResponse(w, "success", uuidResponse)
+
+	// if !validations.ValidateContext(w, r) {
+	// 	return
+	// }
+	// var team models.TeamPost
+	// //FALTA IMPLEMENTAR EL RESTO
+	// if err := json.NewDecoder(r.Body).Decode(&team); err != nil {
+	// 	helpers.BadRequestResponse(w, "Error obtaining data", err, "ERROR_DATA")
+	// 	return
+	// }
+	// validationErrors := validations.TeamsPostValidations(team)
+
+	// if len(validationErrors) > 0 {
+	// 	message := strings.Join(validationErrors, ", ")
+
+	// 	helpers.BadRequestResponse(
+	// 		w,
+	// 		message,
+	// 		errors.New(message),
+	// 		"VALIDATION_ERRORS",
+	// 	)
+	// 	return
+	// }
+
 }
 func AssignTeamHandler(w http.ResponseWriter, r *http.Request) {
 	userUID, ok := r.Context().Value("userID").(string)
@@ -430,14 +472,39 @@ func AssingCategoryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamSQL := `
-	INSERT INTO "entity_team_categories" ("team_uid", "category_uid")
-	SELECT $1::UUID, category_uid
-	FROM unnest($2::UUID[]) AS category_uid
-	ON CONFLICT ("team_uid", "category_uid") DO NOTHING;
-	`
+	tx, err := db.DB.Begin()
+	if err != nil {
+		helpers.BadRequestResponse(
+			w,
+			"Error starting category assignment",
+			err,
+			"ASSIGNMENT_ERROR",
+		)
+		return
+	}
+	defer tx.Rollback()
 
-	_, err := db.DB.Exec(
+	_, err = tx.Exec(
+		`DELETE FROM "entity_team_categories" WHERE "team_uid" = $1::UUID;`,
+		teamAssign.Team_uid,
+	)
+	if err != nil {
+		helpers.BadRequestResponse(
+			w,
+			"Error replacing categories",
+			err,
+			"ASSIGNMENT_ERROR",
+		)
+		return
+	}
+
+	teamSQL := `
+		INSERT INTO "entity_team_categories" ("team_uid", "category_uid")
+		SELECT $1::UUID, category_uid
+		FROM unnest($2::UUID[]) AS category_uid
+		ON CONFLICT ("team_uid", "category_uid") DO NOTHING;
+	`
+	_, err = tx.Exec(
 		teamSQL,
 		teamAssign.Team_uid,
 		pq.Array(teamAssign.Categories),
@@ -446,6 +513,16 @@ func AssingCategoryHandler(w http.ResponseWriter, r *http.Request) {
 		helpers.BadRequestResponse(
 			w,
 			"Error assigning categories",
+			err,
+			"ASSIGNMENT_ERROR",
+		)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		helpers.BadRequestResponse(
+			w,
+			"Error saving categories",
 			err,
 			"ASSIGNMENT_ERROR",
 		)

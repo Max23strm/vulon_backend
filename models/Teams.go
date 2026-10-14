@@ -6,7 +6,7 @@ type Team struct {
 	Entity_uid       string   `json:"entity_uid"`
 	Entity_name      string   `json:"entity_name"`
 	Players_assigned int      `json:"players_assigned"`
-	Categories       []string `json:"categories"`
+	Categories       []TeamCategoryInfo `json:"categories"`
 }
 
 type TeamsDetails struct {
@@ -47,6 +47,11 @@ type PlayerUnasign struct {
 type TeamCategory struct {
 	Category_uid string `json:"category_uid"`
 	Description  string `json:"description"`
+}
+
+type TeamCategoryInfo struct {
+	Category_uid string `json:"category_uid"`
+	Name         string `json:"name"`
 }
 
 type TeamPostCategory struct {
