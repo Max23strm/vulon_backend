@@ -1,6 +1,7 @@
+-- Active: 1788559734175@@localhost@5432
 # vulon_backend
 
-API REST en Go para la gestión administrativa de un club deportivo (PITZ). Permite administrar jugadores, eventos, asistencia, pagos, gastos y usuarios, con autenticación por JWT y reportes en Excel.
+API REST en Go para la gestión administrativa de clubes deportivos. Permite administrar jugadores, eventos, asistencia, pagos, gastos y usuarios, con autenticación por JWT y reportes en Excel.
 
 ## Stack
 
@@ -31,95 +32,40 @@ backend/
 
 ## Variables de entorno
 
-Crear un archivo `.env` en la raíz con las siguientes variables (en Railway se toman directamente del entorno):
+Copiar `.env.example` como `.env` en la raíz del proyecto y completar la configuración local. El archivo `.env` está excluido de Git; no subir credenciales ni secretos al repositorio. En Railway u otro proveedor, definir estas variables en la configuración del servicio.
 
-| Variable               | Descripción                                                    |
-| ---------------------- | -------------------------------------------------------------- |
-| `DB_USER`              | Usuario de PostgreSQL                                          |
-| `DB_PASSWORD`          | Contraseña de PostgreSQL                                       |
-| `DB_SERVER`            | Host de PostgreSQL                                             |
-| `DB_PORT`              | Puerto de PostgreSQL (por defecto `5432`)                      |
-| `DB_NAME`              | Nombre de la base de datos                                     |
-| `DB_SSLMODE`           | Modo SSL (`disable` local, `require` para Railway/cloud)       |
-| `HASH`                 | Secret usado para firmas internas (ej. JWT)                   |
-| `RAILWAY_ENVIRONMENT`  | Si está vacío, el servidor carga `.env` (en Railway se omite) |
-| `CALENDAR_ID`          | ID del calendario de Google Calendar                           |
-| `FILE_LOCATIONS`       | Ruta al JSON de credenciales de Google                         |
-| `GOOGLE_CREDENTIALS_JSON` | Credenciales de Google en línea (alternativa al archivo)   |
-| `ENVIROMENT`           | `DEV` o `PROD` para distinguir logs                             |
-
-### Ejemplo `.env` para desarrollo local
-
-```env
-DB_NAME=pitz
-DB_USER=max
-DB_PASSWORD=secretpassword
-DB_SERVER=localhost
-DB_PORT=5432
-DB_SSLMODE=disable
-HASH=localHash
-ENVIROMENT=DEV
-```
+| Variable | Descripción |
+| --- | --- |
+| `DB_USER`, `DB_PASSWORD` | Usuario y contraseña de PostgreSQL. |
+| `DB_SERVER`, `DB_PORT`, `DB_NAME` | Host, puerto y base de datos PostgreSQL. |
+| `DB_SSLMODE` | Modo SSL de la conexión. |
+| `HASH` | Secreto utilizado para firmar y validar tokens JWT. |
+| `RAILWAY_ENVIRONMENT` | Cuando está definido, la aplicación no carga `.env` y usa el entorno del proveedor. |
+| `ENVIROMENT` | Selecciona el modo de credenciales de Google Calendar: archivo local o JSON en una variable. El nombre está escrito así en el código. |
+| `FILE_LOCATIONS` | Ruta local al JSON de credenciales de Google Calendar cuando se usa el modo de archivo. |
+| `GOOGLE_CREDENTIALS_JSON` | JSON de credenciales de Google Calendar cuando se usa el modo de variable. |
+| `CALENDAR_ID` | Identificador del calendario de Google Calendar. |
 
 ## Configuración de la base de datos
 
-### Opción A — Docker local
+### PostgreSQL local
 
-```bash
-docker run --name some-postgres \
-  -e POSTGRES_USER=max \
-  -e POSTGRES_PASSWORD=secretpassword \
-  -e POSTGRES_DB=pitz \
-  -p 5432:5432 \
-  -d postgres
-```
-
-Comandos útiles para el contenedor:
-
-```bash
-# Ver logs del contenedor
-docker logs -f some-postgres
-
-# Abrir una consola psql dentro del contenedor
-docker exec -it some-postgres psql -U max -d pitz
-
-# Detener / reiniciar / eliminar
-docker stop some-postgres
-docker start some-postgres
-docker rm -f some-postgres
-```
-
-### Opción B — Postgres instalado nativamente
-
-Instalar Postgres 14+ desde [postgresql.org/download](https://www.postgresql.org/download/), crear usuario y base:
-
-```bash
-createuser -P max
-createdb -O max pitz
-```
+Instalar PostgreSQL 14 o posterior (localmente o mediante Docker) y crear una base de datos y un usuario. Configurar sus datos de conexión en `.env`.
 
 ### Aplicar el esquema
 
 Una vez la BD sea accesible, ejecutar el script de creación de tablas:
 
 ```bash
-psql "host=localhost port=5432 user=max password=secretpassword dbname=pitz sslmode=disable" \
-  -f sql/schema_postgres.sql
+psql -f sql/schema_postgres.sql
 ```
 
-El script también puede ejecutarse por partes si se prefiere copiar y pegar vía `psql -U max -d pitz` con el contenido de `sql/schema_postgres.sql`.
+Ejecuta el comando con `psql` configurado para conectarse a la base de datos del proyecto.
 
-### Opción C — Railway / proveedor cloud
+### Railway / proveedor cloud
 
-1. Crear servicio PostgreSQL en Railway (plugin "PostgreSQL").
-2. En el servicio del backend, agregar las variables Railway (`PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`) o mapearlas a las nuestras:
-   - `DB_SERVER`  ← `PGHOST`
-   - `DB_PORT`    ← `PGPORT`
-   - `DB_USER`    ← `PGUSER`
-   - `DB_PASSWORD`← `PGPASSWORD`
-   - `DB_NAME`    ← `PGDATABASE`
-   - `DB_SSLMODE` ← `require`
-3. Aplicar el esquema ejecutando `sql/schema_postgres.sql` desde una consola `psql` apuntando a la URL pública de Railway.
+1. Crear un servicio PostgreSQL y configurar en el backend las variables de conexión indicadas arriba, usando los datos proporcionados por el proveedor.
+2. Aplicar `sql/schema_postgres.sql` desde una consola `psql` conectada a esa base de datos.
 
 ## Cómo correrlo
 
@@ -146,7 +92,7 @@ GOOS=linux GOARCH=amd64 go build -o tmp/pitz-backend .
 
 ## Endpoints
 
-Base URL: `/api`. Todas las rutas bajo `/api` requieren token JWT válido (middleware `AuthMiddleware`), excepto `loginSession` y `passwordRestoration`.
+Base URL: `/api`. Los endpoints protegidos validan un token JWT; `loginSession` y `passwordRestoration` son públicos.
 
 ### Autenticación
 | Método | Endpoint                        | Descripción                       |
@@ -238,40 +184,21 @@ El servidor responde con los headers `Access-Control-Allow-Origin: *` para los m
 
 ## Smoke test
 
-Con el servidor corriendo en `http://localhost:3050`:
+Con PostgreSQL configurado, el esquema aplicado y un usuario de prueba creado, iniciar el servidor y probar el login. Sustituir los marcadores por las credenciales del usuario de prueba:
 
 ```bash
-# 1. Levantar contenedor de Postgres + esquema + usuario admin vía INSERT del esquema
-docker run --name some-postgres -e POSTGRES_USER=max -e POSTGRES_PASSWORD=secretpassword -e POSTGRES_DB=pitz -p 5432:5432 -d postgres
-psql "host=localhost port=5432 user=max password=secretpassword dbname=pitz sslmode=disable" -f sql/schema_postgres.sql
-
-# 2. Crear usuario admin con password "admin123" (generar hash con cualquier bcrypt online → reemplazar abajo)
-psql "host=localhost port=5432 user=max password=secretpassword dbname=pitz sslmode=disable" \
-  -c "INSERT INTO \"users\" (\"user_uid\", \"username\", \"email\", \"hashed_password\", \"first_name\", \"last_name\") VALUES (uuid_generate_v4()::text, 'admin', 'admin@pitz.local', '\$2a\$10\$REEMPLAZAR', 'Admin', 'PITZ');"
-
-# 3. Arrancar backend
-air
-
-# 4. Probar login (en otra terminal)
 curl -X POST http://localhost:3050/api/loginSession \
   -H "Content-Type: application/json" \
-  -d '{"user":"admin","password":"admin123"}'
-
-# 5. Probar home con el token recibido
-TOKEN="<pegar_token_acá>"
-curl -X GET "http://localhost:3050/api/home?date=$(date +%Y-%m-01)" \
-  -H "Authorization: Bearer $TOKEN"
-
-# 6. Probar listado de jugadores
-curl -X GET http://localhost:3050/api/players \
-  -H "Authorization: Bearer $TOKEN"
+  -d '{"user":"<usuario>","password":"<contraseña>"}'
 ```
+
+Usar el token devuelto para probar un endpoint protegido, por ejemplo `GET /api/players`.
 
 ## Troubleshooting
 
-- **`pq: SSL is not enabled on the server`** — el servidor requiere SSL pero `DB_SSLMODE=disable`. Cambiar a `require`.
-- **`pq: password authentication failed for user "max"`** — contraseña en `.env` no coincide con la del contenedor. Verificar `DB_PASSWORD`.
-- **`dial tcp: connectex: No connection could be made`** — el contenedor de Postgres no está corriendo. Verificar con `docker ps` y reiniciar con `docker start some-postgres`.
+- **Error de SSL** — verificar que `DB_SSLMODE` coincida con la configuración del servidor PostgreSQL.
+- **Error de autenticación** — verificar que los datos de conexión de `.env` coincidan con los de PostgreSQL.
+- **Error de conexión** — verificar que PostgreSQL esté iniciado y accesible desde el backend.
 - **`pq: relation "users" does not exist`** — no se ha aplicado el esquema. Ejecutar `psql … -f sql/schema_postgres.sql`.
-- **Tokens JWT no válidos / expirados** — verificar la variable `HASH`/`JWT_SECRET`. Reiniciar el servidor tras cambiarla.
+- **Tokens JWT no válidos / expirados** — verificar la variable `HASH` y reiniciar el servidor tras cambiarla.
 - **Google Calendar falla** — revisa `CALENDAR_ID`, `FILE_LOCATIONS` (o `GOOGLE_CREDENTIALS_JSON`) y permisos de la cuenta de servicio.
