@@ -274,30 +274,48 @@ func NewTeamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	helpers.CreatedResponse(w, "success", uuidResponse)
 
-	// if !validations.ValidateContext(w, r) {
-	// 	return
-	// }
-	// var team models.TeamPost
-	// //FALTA IMPLEMENTAR EL RESTO
-	// if err := json.NewDecoder(r.Body).Decode(&team); err != nil {
-	// 	helpers.BadRequestResponse(w, "Error obtaining data", err, "ERROR_DATA")
-	// 	return
-	// }
-	// validationErrors := validations.TeamsPostValidations(team)
+}
 
-	// if len(validationErrors) > 0 {
-	// 	message := strings.Join(validationErrors, ", ")
+func DeleteTeamHandler(w http.ResponseWriter, r *http.Request) {
+	userUID, ok := r.Context().Value("userID").(string)
+	if !ok || userUID == "" {
+		helpers.UnauthorizedResponse(w, "Usuario no autenticado")
+		return
+	}
+	vars := mux.Vars(r)
 
-	// 	helpers.BadRequestResponse(
-	// 		w,
-	// 		message,
-	// 		errors.New(message),
-	// 		"VALIDATION_ERRORS",
-	// 	)
-	// 	return
-	// }
+	teamUID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		helpers.BadRequestResponse(
+			w,
+			"Team_uid is required or invalid",
+			err,
+			"INVALID_TEAM_ID",
+		)
+		return
+	}
+
+	teamSQL := "UPDATE entity_teams SET  delete_flag = 1 WHERE team_uid = $1"
+
+	_, err = db.DB.Exec(teamSQL, teamUID)
+
+	if err != nil {
+		helpers.BadRequestResponse(
+			w,
+			"Error creating",
+			err,
+			"STORING_ERROR",
+		)
+		return
+	}
+
+	uuidResponse := map[string]string{
+		"team_uid": teamUID.String(),
+	}
+	helpers.CreatedResponse(w, "success", uuidResponse)
 
 }
+
 func AssignTeamHandler(w http.ResponseWriter, r *http.Request) {
 	userUID, ok := r.Context().Value("userID").(string)
 	if !ok || userUID == "" {

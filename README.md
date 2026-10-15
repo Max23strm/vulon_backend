@@ -108,11 +108,13 @@ Base URL: `/api`. Los endpoints protegidos validan un token JWT; `loginSession` 
 ### Jugadores
 | Método | Endpoint                                       | Descripción                |
 | ------ | ---------------------------------------------- | -------------------------- |
-| GET    | `/api/players`                                 | Listar jugadores           |
+| GET    | `/api/players/{entity_uid}`                   | Listar jugadores de una entidad |
 | GET    | `/api/players/{id}`                            | Obtener jugador por ID     |
 | POST   | `/api/players/newPlayer`                       | Crear jugador              |
 | PUT    | `/api/players/editPlayer/{id}`                 | Editar jugador             |
 | DELETE | `/api/players`                                 | Eliminar jugador           |
+
+En la base de datos actual se añadieron 50 jugadores de ejemplo a la entidad `ed2c56a2-1c4b-4df6-ad1c-a255a4482f05` (25 con sexo `Hombre` y 25 con sexo `Mujer`). Sus correos usan el dominio reservado `example.test`. Para listarlos, usa ese UUID como `entity_uid` en la colección de Postman.
 
 ### Eventos
 | Método | Endpoint                                | Descripción                 |
