@@ -19,16 +19,24 @@ func GetPlayersHandler(w http.ResponseWriter, r *http.Request) {
 	if !validations.ValidateContext(w, r) {
 		return
 	}
+	vars := mux.Vars(r)
+	entity_uid, err := uuid.Parse(vars["entity_uid"])
 
-	playersSql := "SELECT players.player_uid, first_name, last_name, status, email FROM players ORDER BY players.first_name ASC"
-	players := models.Players{}
-
-	datos, err := db.DB.Query(playersSql)
-	if err != nil {
-		helpers.ErrorResponse(w, http.StatusBadRequest, "Error obtaining players", err)
-
+	if len(entity_uid) == 0 || err != nil {
+		helpers.BadRequestResponse(w, "Entity is required", errors.New("No entity"), "ENTITY_REQUIRED")
 		return
 	}
+
+	playersSql := "SELECT players.player_uid, first_name, last_name, status, email FROM players WHERE entity_uid = $1 ORDER BY players.first_name ASC"
+	players := models.Players{}
+
+	datos, err := db.DB.Query(playersSql, entity_uid)
+	if err != nil {
+		fmt.Println(err)
+		helpers.InternalServerErrorResponse(w, "Petition error")
+		return
+	}
+	defer datos.Close()
 
 	for datos.Next() {
 		dato := models.Player{}
@@ -39,6 +47,11 @@ func GetPlayersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		players = append(players, dato)
+	}
+
+	if err := datos.Err(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error reading players")
+		return
 	}
 
 	helpers.SuccessResponse(w, "", players)

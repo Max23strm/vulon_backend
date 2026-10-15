@@ -51,7 +51,7 @@ func main() {
 	r.HandleFunc(baseUrl+"/home", routes.HomeHanlder)
 
 	//USERS - PLAYERS
-	r.HandleFunc(baseUrl+"/players", routes.GetPlayersHandler).Methods("GET")
+	r.HandleFunc(baseUrl+"/players/{entity_uid}", routes.GetPlayersHandler).Methods("GET")
 	r.HandleFunc(baseUrl+"/players/newPlayer", routes.PostPlayerHandler).Methods("POST")
 	r.HandleFunc(baseUrl+"/players/editPlayer/{id}", routes.EditPlayerHandler).Methods("PUT")
 	r.HandleFunc(baseUrl+"/players", routes.DeletePlayerHandler).Methods("DELETE")
@@ -67,6 +67,7 @@ func main() {
 	r.HandleFunc(baseUrl+"/teams", routes.GetTeamsByEntityHandler).Methods("GET")
 	r.HandleFunc(baseUrl+"/teams/{id}", routes.GetTemsByIdHandler).Methods("GET")
 	r.Handle(baseUrl+"/teams/new", middleware.AuthMiddleware(http.HandlerFunc(routes.NewTeamHandler))).Methods("POST")
+	r.Handle(baseUrl+"/teams/delete/{id}", middleware.AuthMiddleware(http.HandlerFunc(routes.DeleteTeamHandler))).Methods("POST")
 	// r.HandleFunc(baseUrl+"/teams/edit/{id}", routes.EditTeamHandler).Methods("PUT")
 	r.Handle(baseUrl+"/team/assign", middleware.AuthMiddleware(http.HandlerFunc(routes.AssignTeamHandler))).Methods("POST")
 	r.Handle(baseUrl+"/team/unassign", middleware.AuthMiddleware(http.HandlerFunc(routes.UnassignTeamHandler))).Methods("DELETE")
