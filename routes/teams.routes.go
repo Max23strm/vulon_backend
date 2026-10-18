@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -316,6 +317,77 @@ func DeleteTeamHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func GetPlayersAssignedToTeam(w http.ResponseWriter, r *http.Request) {
+	userUID, ok := r.Context().Value("userID").(string)
+	if !ok || userUID == "" {
+		helpers.UnauthorizedResponse(w, "Usuario no autenticado")
+		return
+	}
+	vars := mux.Vars(r)
+
+	teamUID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		helpers.BadRequestResponse(
+			w,
+			"Team_uid is required or invalid",
+			err,
+			"INVALID_TEAM_ID",
+		)
+		return
+	}
+
+	teamSQL := `
+		SELECT
+			player_uid
+		FROM players_assignation
+		WHERE team_uid = $1 AND delete_flag = 0;
+	`
+
+	rows, err := db.DB.Query(teamSQL, teamUID)
+	if err != nil {
+		fmt.Println(err)
+		helpers.InternalServerErrorResponse(w, "Error obtaining team assignation")
+		return
+	}
+	defer rows.Close()
+
+	var assignation models.PlayersAssignedRes
+
+	assignation.Team_uid = teamUID.String()
+	assignation.Players = make([]string, 0)
+
+	for rows.Next() {
+		var player_uid string
+
+		err := rows.Scan(
+			&player_uid,
+		)
+		if err != nil {
+			helpers.BadRequestResponse(
+				w,
+				"Error scanning team",
+				err,
+				"DATA_ERROR",
+			)
+			return
+		}
+
+		if player_uid != "" {
+			assignation.Players = append(
+				assignation.Players,
+				player_uid,
+			)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error reading assignation")
+		return
+	}
+
+	helpers.SuccessResponse(w, "", assignation)
+}
+
 func AssignTeamHandler(w http.ResponseWriter, r *http.Request) {
 	userUID, ok := r.Context().Value("userID").(string)
 	if !ok || userUID == "" {
@@ -323,11 +395,12 @@ func AssignTeamHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var playerAsign models.PlayerAsign
-	//FALTA IMPLEMENTAR EL RESTO
+
 	if err := json.NewDecoder(r.Body).Decode(&playerAsign); err != nil {
 		helpers.BadRequestResponse(w, "Error obtaining data", err, "ERROR_DATA")
 		return
 	}
+
 	validationErrors := validations.TeamsAsignValidations(playerAsign)
 
 	if len(validationErrors) > 0 {
@@ -357,6 +430,170 @@ func AssignTeamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	helpers.CreatedResponse(w, "success", nil)
+}
+
+func AssignTeamBulkHandler(w http.ResponseWriter, r *http.Request) {
+	userUID, ok := r.Context().Value("userID").(string)
+	if !ok || userUID == "" {
+		helpers.UnauthorizedResponse(w, "Usuario no autenticado")
+		return
+	}
+	var assignation models.PlayersAssignedRes
+
+	if err := json.NewDecoder(r.Body).Decode(&assignation); err != nil {
+		helpers.BadRequestResponse(w, "Error obtaining data", err, "ERROR_DATA")
+		return
+	}
+	if len(assignation.Players) == 0 {
+		err := errors.New("Players are required")
+		helpers.BadRequestResponse(w, err.Error(), err, "VALIDATION_ERRORS")
+		return
+	}
+
+	validationErrors := make([]string, 0)
+	for _, playerUID := range assignation.Players {
+		validationErrors = append(validationErrors, validations.TeamsAsignValidations(models.PlayerAsign{
+			Player_uid: playerUID,
+			Team_uid:   assignation.Team_uid,
+		})...)
+	}
+	if len(validationErrors) > 0 {
+		message := strings.Join(validationErrors, ", ")
+		helpers.BadRequestResponse(w, message, errors.New(message), "VALIDATION_ERRORS")
+		return
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		helpers.InternalServerErrorResponse(w, "Error starting assignment transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	checkSQL := `SELECT "player_assignation_uid", "delete_flag"
+		FROM "players_assignation"
+		WHERE "team_uid" = $1 AND "player_uid" = $2
+		ORDER BY "delete_flag" ASC
+		LIMIT 1
+		FOR UPDATE`
+	reactivateSQL := `UPDATE "players_assignation" SET "delete_flag" = 0 WHERE "player_assignation_uid" = $1`
+	insertSQL := `INSERT INTO "players_assignation" ("player_uid", "team_uid", "assigned_by_uid") VALUES ($1, $2, $3)`
+	assigned := 0
+
+	for _, playerUID := range assignation.Players {
+		var assignationUID string
+		var deleteFlag int
+		err := tx.QueryRow(checkSQL, assignation.Team_uid, playerUID).Scan(&assignationUID, &deleteFlag)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			helpers.InternalServerErrorResponse(w, "Error checking player assignment")
+			return
+		}
+		if err == nil && deleteFlag == 0 {
+			continue
+		}
+		if err == nil {
+			if _, err := tx.Exec(reactivateSQL, assignationUID); err != nil {
+				helpers.InternalServerErrorResponse(w, "Error reactivating player assignment")
+				return
+			}
+			assigned++
+			continue
+		}
+
+		if _, err := tx.Exec(insertSQL, playerUID, assignation.Team_uid, userUID); err != nil {
+			helpers.InternalServerErrorResponse(w, "Error assigning player")
+			return
+		}
+		assigned++
+	}
+
+	if err := tx.Commit(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error saving player assignments")
+		return
+	}
+	msg := fmt.Sprintf("%d assigned", assigned)
+	helpers.CreatedResponse(w, msg, nil)
+}
+func UnassignTeamBulkHandler(w http.ResponseWriter, r *http.Request) {
+	userUID, ok := r.Context().Value("userID").(string)
+	if !ok || userUID == "" {
+		helpers.UnauthorizedResponse(w, "Usuario no autenticado")
+		return
+	}
+	var assignation models.PlayersAssignedRes
+
+	if err := json.NewDecoder(r.Body).Decode(&assignation); err != nil {
+		helpers.BadRequestResponse(w, "Error obtaining data", err, "ERROR_DATA")
+		return
+	}
+
+	if len(assignation.Players) == 0 {
+		err := errors.New("Players are required")
+		helpers.BadRequestResponse(w, err.Error(), err, "VALIDATION_ERRORS")
+		return
+	}
+
+	validationErrors := make([]string, 0)
+	for _, playerUID := range assignation.Players {
+		validationErrors = append(validationErrors, validations.TeamsAsignValidations(models.PlayerAsign{
+			Player_uid: playerUID,
+			Team_uid:   assignation.Team_uid,
+		})...)
+	}
+	if len(validationErrors) > 0 {
+		message := strings.Join(validationErrors, ", ")
+		helpers.BadRequestResponse(w, message, errors.New(message), "VALIDATION_ERRORS")
+		return
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		helpers.InternalServerErrorResponse(w, "Error starting assignment transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	checkSQL := `SELECT "player_assignation_uid", "delete_flag"
+		FROM "players_assignation"
+		WHERE "team_uid" = $1 AND "player_uid" = $2
+		ORDER BY "delete_flag" ASC
+		LIMIT 1
+		FOR UPDATE`
+
+	deactivateSQL := `UPDATE "players_assignation" SET "delete_flag" = 1 WHERE "player_assignation_uid" = $1`
+
+	unassigned := 0
+
+	for _, playerUID := range assignation.Players {
+		var assignationUID string
+		var deleteFlag int
+		err := tx.QueryRow(checkSQL, assignation.Team_uid, playerUID).Scan(&assignationUID, &deleteFlag)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			helpers.InternalServerErrorResponse(w, "Error checking player assignment")
+			return
+		}
+		if deleteFlag == 1 {
+			continue
+		}
+
+		if _, err := tx.Exec(deactivateSQL, assignationUID); err != nil {
+			helpers.InternalServerErrorResponse(w, "Error unassigning player")
+			return
+		}
+		unassigned++
+		continue
+
+	}
+
+	if err := tx.Commit(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error saving player assignments")
+		return
+	}
+	msg := fmt.Sprintf("%d unassigned", unassigned)
+	helpers.CreatedResponse(w, msg, nil)
 }
 
 func UnassignTeamHandler(w http.ResponseWriter, r *http.Request) {

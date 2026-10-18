@@ -31,6 +31,10 @@ type TeamDelete struct {
 
 type Teams []Team
 
+type PlayersAssignedRes struct {
+	Team_uid string   `json:"team_uid"`
+	Players  []string `json:"players"`
+}
 type PlayerAsignation struct {
 	Player_assignation_uid string `json:"player_assignation_uid"`
 	Player_uid             string `json:"player_uid"`
