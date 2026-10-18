@@ -69,8 +69,11 @@ func main() {
 	r.Handle(baseUrl+"/teams/new", middleware.AuthMiddleware(http.HandlerFunc(routes.NewTeamHandler))).Methods("POST")
 	r.Handle(baseUrl+"/teams/delete/{id}", middleware.AuthMiddleware(http.HandlerFunc(routes.DeleteTeamHandler))).Methods("POST")
 	// r.HandleFunc(baseUrl+"/teams/edit/{id}", routes.EditTeamHandler).Methods("PUT")
+	r.Handle(baseUrl+"/team/assigned/{id}", middleware.AuthMiddleware(http.HandlerFunc(routes.GetPlayersAssignedToTeam))).Methods("GET")
 	r.Handle(baseUrl+"/team/assign", middleware.AuthMiddleware(http.HandlerFunc(routes.AssignTeamHandler))).Methods("POST")
 	r.Handle(baseUrl+"/team/unassign", middleware.AuthMiddleware(http.HandlerFunc(routes.UnassignTeamHandler))).Methods("DELETE")
+	r.Handle(baseUrl+"/team/unassignBulk", middleware.AuthMiddleware(http.HandlerFunc(routes.UnassignTeamBulkHandler))).Methods("DELETE")
+	r.Handle(baseUrl+"/team/assignBulk", middleware.AuthMiddleware(http.HandlerFunc(routes.AssignTeamBulkHandler))).Methods("POST")
 
 	//TEAMS CATEGORIES
 	r.HandleFunc(baseUrl+"/teams-categories", routes.GetTeamsCategoriesByEntityHandler).Methods("GET")
