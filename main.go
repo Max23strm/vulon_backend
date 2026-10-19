@@ -52,10 +52,11 @@ func main() {
 
 	//USERS - PLAYERS
 	r.HandleFunc(baseUrl+"/players/{entity_uid}", routes.GetPlayersHandler).Methods("GET")
+	r.HandleFunc(baseUrl+"/playersStats/{entity_uid}", routes.GetPlayersStatsHandler).Methods("GET")
 	r.HandleFunc(baseUrl+"/players/newPlayer", routes.PostPlayerHandler).Methods("POST")
 	r.HandleFunc(baseUrl+"/players/editPlayer/{id}", routes.EditPlayerHandler).Methods("PUT")
 	r.HandleFunc(baseUrl+"/players", routes.DeletePlayerHandler).Methods("DELETE")
-	r.HandleFunc(baseUrl+"/players/{id}", routes.GetPlayerByIdHandler).Methods("GET")
+	r.HandleFunc(baseUrl+"/playerById/{id}", routes.GetPlayerByIdHandler).Methods("GET")
 
 	//ENTITIES
 	r.HandleFunc(baseUrl+"/entities", routes.GetAllEntities).Methods("GET")

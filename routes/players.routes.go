@@ -61,7 +61,6 @@ func GetPlayersHandler(w http.ResponseWriter, r *http.Request) {
 
 	datos, err := db.DB.Query(playersSql, entity_uid)
 	if err != nil {
-		fmt.Println(err)
 		helpers.InternalServerErrorResponse(w, "Petition error")
 		return
 	}
@@ -99,6 +98,43 @@ func GetPlayersHandler(w http.ResponseWriter, r *http.Request) {
 
 	helpers.SuccessResponse(w, "", players)
 }
+func GetPlayersStatsHandler(w http.ResponseWriter, r *http.Request) {
+	if !validations.ValidateContext(w, r) {
+		return
+	}
+	vars := mux.Vars(r)
+	entity_uid, err := uuid.Parse(vars["entity_uid"])
+
+	if len(entity_uid) == 0 || err != nil {
+		helpers.BadRequestResponse(w, "Entity is required", errors.New("No entity"), "ENTITY_REQUIRED")
+		return
+	}
+	statsSQL := `
+    SELECT
+        COUNT(*) FILTER (WHERE delete_flag = 0),
+        COUNT(*) FILTER (WHERE delete_flag = 0 AND status = 1),
+        COUNT(*) FILTER (WHERE delete_flag = 0 AND sex = 'Hombre'),
+        COUNT(*) FILTER (WHERE delete_flag = 0 AND sex = 'Mujer')
+    FROM players
+    WHERE entity_uid = $1
+`
+
+	var stats models.PlayerStats
+	stats.Entity_uid = entity_uid.String()
+
+	err = db.DB.QueryRowContext(r.Context(), statsSQL, entity_uid).Scan(
+		&stats.Registered,
+		&stats.Active,
+		&stats.Male,
+		&stats.Female,
+	)
+	if err != nil {
+		helpers.InternalServerErrorResponse(w, "Error obteniendo estadísticas")
+		return
+	}
+
+	helpers.SuccessResponse(w, "", stats)
+}
 
 func GetPlayerByIdHandler(w http.ResponseWriter, r *http.Request) {
 	if !validations.ValidateContext(w, r) {
@@ -131,7 +167,6 @@ func GetPlayerByIdHandler(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
-
 	helpers.SuccessResponse(
 		w,
 		"Fetched successfully",
@@ -168,9 +203,9 @@ func PostPlayerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sqlString := "INSERT INTO \"players\" (\"player_uid\", \"first_name\", \"last_name\", \"phone_number\", \"emergency_phone\", \"email\", \"status\", \"positions\", \"birth_dt\", \"blood_type\", \"comments\", \"credential\", \"address\", \"afiliation\", \"sex\", \"curp\", \"enfermedad\", \"insurance\", \"insurance_name\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)"
+	sqlString := "INSERT INTO \"players\" (\"player_uid\", \"first_name\", \"last_name\", \"phone_number\", \"emergency_phone\", \"email\", \"status\", \"positions\", \"birth_dt\", \"blood_type\", \"comments\", \"credential\", \"address\", \"afiliation\", \"sex\", \"curp\", \"enfermedad\", \"insurance\", \"insurance_name\", \"entity_uid\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)"
 
-	_, err := db.DB.Exec(sqlString, new_uuid.String(), player.FirstName, player.LastName, player.Phone_number, player.Emergency_number, player.Email, player.Status, nil, player.Birth_dt, player.BloodType, player.Comments, player.Credential, player.Address, player.Afiliation, player.Sex, player.Curp, player.Enfermedad, player.Insurance, player.Insurance_name)
+	_, err := db.DB.Exec(sqlString, new_uuid.String(), player.FirstName, player.LastName, player.Phone_number, player.Emergency_number, player.Email, player.Status, nil, player.Birth_dt, player.BloodType, player.Comments, player.Credential, player.Address, player.Afiliation, player.Sex, player.Curp, player.Enfermedad, player.Insurance, player.Insurance_name, player.Entity_uid)
 
 	if err != nil {
 		helpers.BadRequestResponse(
