@@ -12,6 +12,15 @@ type Player struct {
 	Status     int16    `json:"status"`
 	Assigned   []string `json:"assigned"`
 }
+
+type PlayerStats struct {
+	Entity_uid string `json:"entity_uid"`
+	Registered int32  `json:"registered"`
+	Active     int32  `json:"active"`
+	Male       int32  `json:"male"`
+	Female     int32  `json:"female"`
+}
+
 type PlayerAssigned struct {
 	Player_uid      string `json:"player_uid"`
 	FirstName       string `json:"firstName"`
@@ -63,6 +72,7 @@ type PostPlayerDetails struct {
 	Phone_number     *string   `json:"phone_number,omitempty"`
 	Emergency_number *string   `json:"emergency_number,omitempty"`
 	Insurance        bool      `json:"insurance"`
+	Entity_uid       string    `json:"entity_uid"`
 	Insurance_name   *string   `json:"insurance_name,omitempty"`
 }
 type PutPlayerDetails struct {
