@@ -27,7 +27,36 @@ func GetPlayersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	playersSql := "SELECT players.player_uid, first_name, last_name, status, email FROM players WHERE entity_uid = $1 ORDER BY players.first_name ASC"
+	playersSql := `
+		SELECT
+        p.player_uid,
+        p.first_name,
+        p.last_name,
+        p.status,
+        p.email,
+        COALESCE(
+            json_agg(t.description ORDER BY t.description)
+                FILTER (WHERE t.team_uid IS NOT NULL),
+            '[]'::json
+        ) AS assigned
+    FROM players AS p
+    LEFT JOIN players_assignation AS pa
+        ON pa.player_uid = p.player_uid
+        AND pa.delete_flag = 0
+    LEFT JOIN entity_teams AS t
+        ON t.team_uid = pa.team_uid
+        AND t.entity_uid = p.entity_uid
+        AND t.delete_flag = 0
+    WHERE p.entity_uid = $1
+        AND p.delete_flag = 0
+    GROUP BY
+        p.player_uid,
+        p.first_name,
+        p.last_name,
+        p.status,
+        p.email
+    ORDER BY p.first_name ASC
+	`
 	players := models.Players{}
 
 	datos, err := db.DB.Query(playersSql, entity_uid)
@@ -40,9 +69,23 @@ func GetPlayersHandler(w http.ResponseWriter, r *http.Request) {
 
 	for datos.Next() {
 		dato := models.Player{}
-		err := datos.Scan(&dato.Player_uid, &dato.FirstName, &dato.LastName, &dato.Status, &dato.Email)
+		var assignedJSON []byte
+
+		err := datos.Scan(
+			&dato.Player_uid,
+			&dato.FirstName,
+			&dato.LastName,
+			&dato.Status,
+			&dato.Email,
+			&assignedJSON,
+		)
 		if err != nil {
 			helpers.ErrorResponse(w, http.StatusBadRequest, "Error scanning players", err)
+			return
+		}
+
+		if err := json.Unmarshal(assignedJSON, &dato.Assigned); err != nil {
+			helpers.InternalServerErrorResponse(w, "Error decoding assigned teams")
 			return
 		}
 
