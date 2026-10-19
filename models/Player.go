@@ -5,12 +5,12 @@ import (
 )
 
 type Player struct {
-	Player_uid string `json:"player_uid"`
-	FirstName  string `json:"firstName"`
-	LastName   string `json:"last_name"`
-	Email      string `json:"email"`
-	Status     int16  `json:"status"`
-	Positions  []int8 `json:"positions"`
+	Player_uid string   `json:"player_uid"`
+	FirstName  string   `json:"firstName"`
+	LastName   string   `json:"last_name"`
+	Email      string   `json:"email"`
+	Status     int16    `json:"status"`
+	Assigned   []string `json:"assigned"`
 }
 type PlayerAssigned struct {
 	Player_uid      string `json:"player_uid"`
