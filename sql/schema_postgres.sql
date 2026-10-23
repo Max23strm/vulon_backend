@@ -123,7 +123,27 @@ CREATE TABLE IF NOT EXISTS "asistance" (
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS "payment_type" (
     "payment_type_uid" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    "payment_name" VARCHAR(100) NOT NULL
+    "payment_name" VARCHAR(100) NOT NULL,
+    "system" SMALLINT NOT NULL DEFAULT 0,
+    "entity_uid" UUID NOT NULL,
+    CONSTRAINT "fk_payment_type_entity"
+        FOREIGN KEY ("entity_uid") REFERENCES "entities" ("entity_uid"),
+);
+
+-- =====================================================================
+-- PAYMENT CATEGORIES
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS "payment_category" (
+    "payment_cat_uid" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    "payment_type_uid" UUID NOT NULL,
+    "amount" NUMERIC(12, 2) NOT NULL,
+    "name" VARCHAR(100) NOT NULL,
+    "delete_flag" SMALLINT NOT NULL DEFAULT 0,
+    "entity_uid" UUID NOT NULL,
+    CONSTRAINT "fk_payment_cat_entity"
+        FOREIGN KEY ("entity_uid") REFERENCES "entities" ("entity_uid"),
+    CONSTRAINT "fk_payment_cat_type"
+        FOREIGN KEY ("payment_type_uid") REFERENCES "payment_type" ("payment_type_uid"),
 );
 
 -- =====================================================================

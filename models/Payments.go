@@ -21,7 +21,21 @@ type PostPayments struct {
 	Comment           *string   `json:"comment"`
 	Date              time.Time `json:"date"`
 	Payment_type_uid  string    `json:"payment_type_uid"`
-	User_uid          string    `json:"user_uid"`
+	// User_uid          string    `json:"user_uid"`
+}
+type PaymentsCategory struct {
+	Payment_cat_uid   string  `json:"payment_cat_uid"`
+	Name              string  `json:"name"`
+	Amount            float64 `json:"amount"`
+	Payment_type_uid  string  `json:"payment_type_uid"`
+	Payment_type_name string  `json:"payment_type_name"`
+}
+type PaymentsCategories []PaymentsCategory
+type PostPaymentsCategory struct {
+	Entity_uid       string  `json:"entity_uid"`
+	Name             string  `json:"description"`
+	Amount           float64 `json:"amount"`
+	Payment_type_uid string  `json:"paymetType"`
 }
 
 type Payments []PaymentGeneral
@@ -29,6 +43,7 @@ type Payments []PaymentGeneral
 type PaymentType struct {
 	Payment_type_uid string `json:"payment_type_uid"`
 	Payment_name     string `json:"payment_name"`
+	System           int8   `json:"is_system"`
 }
 type PaymentTypes []PaymentType
 

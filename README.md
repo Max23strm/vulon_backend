@@ -1,192 +1,194 @@
--- Active: 1788559734175@@localhost@5432
-# vulon_backend
+# Vulon Backend
 
-API REST en Go para la gestión administrativa de clubes deportivos. Permite administrar jugadores, eventos, asistencia, pagos, gastos y usuarios, con autenticación por JWT y reportes en Excel.
+API REST en Go para la gestión administrativa de clubes deportivos. Incluye gestión de entidades, jugadores, equipos, eventos, asistencia, pagos, gastos y usuarios, además de autenticación JWT, integración con Google Calendar y reportes en Excel.
 
-## Stack
+## Tecnologías
 
-- **Lenguaje:** Go 1.23
-- **Router:** [gorilla/mux](https://github.com/gorilla/mux)
-- **Base de datos:** PostgreSQL (driver [`lib/pq`](https://github.com/lib/pq))
-- **Autenticación:** JWT (`golang-jwt/jwt/v5`)
-- **Hot reload:** [Air](https://github.com/air-verse/air) (config en `.air.toml`)
-- **Reportes:** [xuri/excelize](https://github.com/xuri/excelize)
-- **Variables de entorno:** [joho/godotenv](https://github.com/joho/godotenv)
+- Go 1.23
+- PostgreSQL con [`lib/pq`](https://github.com/lib/pq)
+- [`gorilla/mux`](https://github.com/gorilla/mux)
+- JWT con `golang-jwt/jwt/v5`
+- Google Calendar API
+- Reportes Excel con `excelize`
+- Recarga en caliente opcional con [Air](https://github.com/air-verse/air)
 
-## Estructura del proyecto
+## Estructura
 
+```text
+.
+├── calendar/       # Integración con Google Calendar
+├── db/             # Conexión a PostgreSQL
+├── helpers/        # Respuestas, tokens y generación de Excel
+├── middleware/     # Middleware JWT
+├── models/         # Modelos y DTOs
+├── routes/         # Handlers HTTP
+├── sql/            # Esquema de PostgreSQL
+├── validations/    # Validaciones de entrada
+├── Postamn/        # Colección de solicitudes Postman
+├── main.go         # Registro de rutas y arranque del servidor
+└── .air.toml        # Configuración de Air
 ```
-backend/
-├── main.go                  # Punto de entrada y registro de rutas
-├── calendar/                # Helpers de fechas
-├── db/                      # Conexión a PostgreSQL
-├── helpers/                 # Generadores (Excel, token, jugadores)
-├── middleware/              # Middleware JWT
-├── models/                  # Estructuras de datos (DTOs)
-├── routes/                  # Handlers HTTP por dominio
-├── sql/                     # Esquema de base de datos (schema_postgres.sql)
-├── validations/             # Validaciones de entrada
-├── tmp/                     # Binarios de Air
-└── .air.toml                # Configuración de hot reload
-```
 
-## Variables de entorno
+## Requisitos
 
-Copiar `.env.example` como `.env` en la raíz del proyecto y completar la configuración local. El archivo `.env` está excluido de Git; no subir credenciales ni secretos al repositorio. En Railway u otro proveedor, definir estas variables en la configuración del servicio.
+- Go 1.23 o posterior
+- PostgreSQL 14 o posterior
+- `psql` para aplicar el esquema
+- Air, solo si se desea usar recarga en caliente (`go install github.com/air-verse/air@latest`)
 
-| Variable | Descripción |
+## Configuración
+
+1. Copia `.env.example` a `.env` en la raíz del repositorio.
+2. Completa las variables de PostgreSQL y define un secreto privado para `HASH`.
+3. Configura Google Calendar si se van a usar las funciones que consultan el calendario.
+
+| Variable | Uso |
 | --- | --- |
-| `DB_USER`, `DB_PASSWORD` | Usuario y contraseña de PostgreSQL. |
-| `DB_SERVER`, `DB_PORT`, `DB_NAME` | Host, puerto y base de datos PostgreSQL. |
-| `DB_SSLMODE` | Modo SSL de la conexión. |
-| `HASH` | Secreto utilizado para firmar y validar tokens JWT. |
-| `RAILWAY_ENVIRONMENT` | Cuando está definido, la aplicación no carga `.env` y usa el entorno del proveedor. |
-| `ENVIROMENT` | Selecciona el modo de credenciales de Google Calendar: archivo local o JSON en una variable. El nombre está escrito así en el código. |
-| `FILE_LOCATIONS` | Ruta local al JSON de credenciales de Google Calendar cuando se usa el modo de archivo. |
-| `GOOGLE_CREDENTIALS_JSON` | JSON de credenciales de Google Calendar cuando se usa el modo de variable. |
-| `CALENDAR_ID` | Identificador del calendario de Google Calendar. |
+| `DB_SERVER`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Conexión a PostgreSQL. |
+| `DB_SSLMODE` | Modo SSL de PostgreSQL; si se omite, el código usa `disable`. |
+| `HASH` | Secreto para firmar y validar tokens JWT. Debe mantenerse privado. |
+| `RAILWAY_ENVIRONMENT` | Si está definido, la aplicación no carga `.env` y usa las variables del entorno. |
+| `ENVIROMENT` | Modo de credenciales de Google Calendar: `DEV` o `PROD` (el nombre está escrito así en el código). |
+| `FILE_LOCATIONS` | Ruta al JSON de credenciales cuando `ENVIROMENT=DEV`. |
+| `GOOGLE_CREDENTIALS_JSON` | JSON de credenciales cuando `ENVIROMENT=PROD`. |
+| `CALENDAR_ID` | ID del calendario de Google Calendar. |
 
-## Configuración de la base de datos
+No subas `.env`, credenciales ni secretos al repositorio.
 
-### PostgreSQL local
+### Base de datos
 
-Instalar PostgreSQL 14 o posterior (localmente o mediante Docker) y crear una base de datos y un usuario. Configurar sus datos de conexión en `.env`.
-
-### Aplicar el esquema
-
-Una vez la BD sea accesible, ejecutar el script de creación de tablas:
+Crea una base de datos PostgreSQL y configura sus credenciales en `.env`. Aplica el esquema desde la raíz del proyecto:
 
 ```bash
-psql -f sql/schema_postgres.sql
+psql -h "$DB_SERVER" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f sql/schema_postgres.sql
 ```
 
-Ejecuta el comando con `psql` configurado para conectarse a la base de datos del proyecto.
+En Windows PowerShell puedes pasar los valores directamente o configurar `PGHOST`, `PGPORT`, `PGUSER` y `PGDATABASE` antes de ejecutar `psql -f sql/schema_postgres.sql`.
 
-### Railway / proveedor cloud
+En Railway u otro proveedor, configura las variables en el servicio y ejecuta el mismo esquema contra la base de datos remota. Cuando `RAILWAY_ENVIRONMENT` está definido, el proceso no lee el archivo `.env`.
 
-1. Crear un servicio PostgreSQL y configurar en el backend las variables de conexión indicadas arriba, usando los datos proporcionados por el proveedor.
-2. Aplicar `sql/schema_postgres.sql` desde una consola `psql` conectada a esa base de datos.
+## Ejecutar
 
-## Cómo correrlo
+Desde la raíz del repositorio:
 
-### Local con hot reload (Air)
+```bash
+go run .
+```
+
+El servidor escucha en el puerto `3050`, por lo que la URL local es `http://localhost:3050`.
+
+Con Air:
 
 ```bash
 air
 ```
 
-El binario se recompila en cada cambio y el servidor queda escuchando en `http://localhost:3050`.
-
-### Local sin hot reload
-
-```bash
-go build -o tmp/main.exe .
-./tmp/main.exe
-```
-
-### Compilación cruzada (Linux para deploy)
+Compilar para Linux (por ejemplo, para despliegue):
 
 ```bash
 GOOS=linux GOARCH=amd64 go build -o tmp/pitz-backend .
 ```
 
-## Endpoints
+## API
 
-Base URL: `/api`. Los endpoints protegidos validan un token JWT; `loginSession` y `passwordRestoration` son públicos.
+La base de las rutas es `/api`. Las rutas y métodos siguientes reflejan el registro actual de `main.go`; los parámetros entre llaves son variables de ruta. Para ejemplos de cuerpos JSON y solicitudes listas para ejecutar, importa [`Postamn/Pitz Backend.postman_collection.json`](Postamn/Pitz%20Backend.postman_collection.json) en Postman.
 
-### Autenticación
-| Método | Endpoint                        | Descripción                       |
-| ------ | ------------------------------- | --------------------------------- |
-| POST   | `/api/loginSession`             | Iniciar sesión                    |
-| POST   | `/api/passwordRestoration`      | Restaurar contraseña              |
+### Autenticación y dashboard
 
-### Home
-| Método | Endpoint       | Descripción           |
-| ------ | -------------- | --------------------- |
-| GET    | `/api/home`    | Datos del dashboard   |
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| POST | `/api/loginSession` | Iniciar sesión y obtener un token. |
+| POST* | `/api/passwordRestoration` | Restaurar contraseña. |
+| GET* | `/api/home?date=AAAA-MM-DD` | Datos del dashboard para la fecha indicada; requiere `date`. |
+
+### Entidades
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| GET | `/api/entities` | Listar entidades. |
+| GET | `/api/entitiesByUser` | Listar entidades asignadas al usuario autenticado. |
+| POST | `/api/newEntity` | Crear entidad. |
+| POST | `/api/assignEntity` | Asignar una entidad a un usuario. |
 
 ### Jugadores
-| Método | Endpoint                                       | Descripción                |
-| ------ | ---------------------------------------------- | -------------------------- |
-| GET    | `/api/players/{entity_uid}`                   | Listar jugadores de una entidad |
-| GET    | `/api/players/{id}`                            | Obtener jugador por ID     |
-| POST   | `/api/players/newPlayer`                       | Crear jugador              |
-| PUT    | `/api/players/editPlayer/{id}`                 | Editar jugador             |
-| DELETE | `/api/players`                                 | Eliminar jugador           |
 
-En la base de datos actual se añadieron 50 jugadores de ejemplo a la entidad `ed2c56a2-1c4b-4df6-ad1c-a255a4482f05` (25 con sexo `Hombre` y 25 con sexo `Mujer`). Sus correos usan el dominio reservado `example.test`. Para listarlos, usa ese UUID como `entity_uid` en la colección de Postman.
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| GET | `/api/players/{entity_uid}` | Listar jugadores de una entidad. |
+| GET | `/api/playersStats/{entity_uid}` | Obtener estadísticas de jugadores de una entidad. |
+| GET | `/api/playerById/{id}` | Obtener jugador por ID. |
+| POST | `/api/players/newPlayer` | Crear jugador. |
+| PUT | `/api/players/editPlayer/{id}` | Editar jugador. |
+| DELETE | `/api/players` | Eliminar jugador. |
 
-### Eventos
-| Método | Endpoint                                | Descripción                 |
-| ------ | --------------------------------------- | --------------------------- |
-| GET    | `/api/events`                           | Listar eventos              |
-| GET    | `/api/events/eventById/{id}`            | Evento por ID               |
-| POST   | `/api/events/newEvent`                  | Crear evento                |
-| PUT    | `/api/events/editEvent/{id}`            | Editar evento               |
-| GET    | `/api/events/getEventsByMonth`          | Eventos por mes             |
+### Equipos y categorías
 
-### Tipos y asistencia
-| Método | Endpoint                                | Descripción                     |
-| ------ | --------------------------------------- | ------------------------------- |
-| GET    | `/api/eventsTypes`                      | Tipos de evento                 |
-| GET    | `/api/asistanceTypes`                   | Tipos de asistencia             |
-| GET    | `/api/asistanceByPlayerId/{id}`         | Asistencia por jugador          |
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| GET | `/api/teams?entity_uid={entity_uid}` | Listar equipos de una entidad. |
+| GET | `/api/teams/{id}` | Obtener equipo por ID. |
+| POST | `/api/teams/new` | Crear equipo. |
+| POST | `/api/teams/delete/{id}` | Eliminar equipo. |
+| GET | `/api/team/assigned/{id}` | Listar jugadores asignados a un equipo. |
+| POST | `/api/team/assign` | Asignar jugador a equipo. |
+| DELETE | `/api/team/unassign?assignation_uid={id}` | Quitar una asignación. |
+| POST | `/api/team/assignBulk` | Asignar varios jugadores. |
+| DELETE | `/api/team/unassignBulk` | Quitar varias asignaciones. |
+| GET | `/api/teams-categories?entity_uid={entity_uid}` | Listar categorías de una entidad. |
+| POST | `/api/teams-categories/new` | Crear categoría. |
+| POST | `/api/teams-categories/assign` | Asignar categorías a un equipo. |
+| POST | `/api/teams-categories/unassign` | Quitar categorías de un equipo. |
 
-### Pagos
-| Método | Endpoint                                | Descripción                       |
-| ------ | --------------------------------------- | --------------------------------- |
-| GET    | `/api/payments`                         | Pagos del mes                     |
-| POST   | `/api/payments/new-payment`             | Registrar pago                    |
-| GET    | `/api/paymentsTypes`                    | Tipos de pago                     |
-| GET    | `/api/payments/paymentById/{id}`        | Pago por ID                       |
-| DELETE | `/api/payments/deletePayment/{id}`      | Eliminar pago                     |
-| POST   | `/api/payments/getPaymentsReport`       | Reporte en Excel                  |
+### Eventos y asistencia
 
-### Gastos
-| Método | Endpoint                                | Descripción                       |
-| ------ | --------------------------------------- | --------------------------------- |
-| GET    | `/api/expenses`                         | Gastos del mes                    |
-| POST   | `/api/expenses/new-expense`             | Registrar gasto                   |
-| GET    | `/api/expenses/{id}`                    | Gasto por ID                      |
-| DELETE | `/api/expenses/deleteExpense/{id}`      | Eliminar gasto                    |
-| POST   | `/api/expenses/getExpensesReport`       | Reporte en Excel                  |
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| GET | `/api/events` | Listar eventos. |
+| GET | `/api/events/eventById/{id}` | Obtener evento por ID. |
+| POST | `/api/events/newEvent` | Crear evento. |
+| PUT | `/api/events/editEvent/{id}` | Editar evento. |
+| GET | `/api/events/getEventsByMonth` | Consultar eventos del mes. |
+| GET | `/api/eventsTypes` | Listar tipos de evento. |
+| GET | `/api/eventsStates` | Listar estados de evento. |
+| GET | `/api/asistanceTypes` | Listar tipos de asistencia. |
+| GET | `/api/asistanceByPlayerId/{id}` | Consultar asistencia por jugador. |
+
+### Pagos y gastos
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| GET | `/api/payments` | Consultar pagos del mes. |
+| POST | `/api/payments/new-payment` | Registrar pago. |
+| GET | `/api/paymentsTypes/{entity_uid}` | Listar tipos de pago de una entidad. |
+| GET | `/api/paymentsCategory/{entity_uid}` | Listar categorías de pago de una entidad. |
+| POST | `/api/paymentsCategory` | Crear categoría de pago. |
+| GET | `/api/payments/paymentById/{id}` | Obtener pago por ID. |
+| DELETE | `/api/payments/deletePayment/{id}` | Eliminar pago. |
+| POST | `/api/payments/getPaymentsReport` | Generar reporte de pagos en Excel. |
+| GET | `/api/expenses` | Consultar gastos del mes. |
+| POST | `/api/expenses/new-expense` | Registrar gasto. |
+| `Get` | `/api/expenses/{id}` | Obtener gasto por ID. **La ruta está registrada con mayúscula/minúscula incorrecta** y puede no aceptar solicitudes HTTP `GET`; cambiar el método en `main.go` a `GET`. |
+| DELETE | `/api/expenses/deleteExpense/{id}` | Eliminar gasto. |
+| POST | `/api/expenses/getExpensesReport` | Generar reporte de gastos en Excel. |
 
 ### Usuarios
-| Método | Endpoint                           | Descripción                |
-| ------ | ---------------------------------- | -------------------------- |
-| GET    | `/api/users/`                      | Listar usuarios            |
-| GET    | `/api/users/basics/{id}`           | Datos básicos de usuario   |
-| GET    | `/api/users/{id}`                  | Usuario por ID             |
-| PUT    | `/api/updateUserPassword/{id}`     | Actualizar contraseña      |
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| GET | `/api/users/` | Listar usuarios. |
+| GET | `/api/users/basics/{id}` | Obtener datos básicos de usuario. |
+| GET | `/api/users/{id}` | Obtener usuario por ID. |
+| PUT | `/api/updateUserPassword/{id}` | Actualizar contraseña. |
+
+> **Autenticación:** los handlers que requieren sesión esperan `Authorization: Bearer <token>`. La aplicación no aplica el middleware JWT globalmente a todas las rutas; la validación se configura por handler/ruta. Comprueba la colección Postman o el código antes de asumir que un endpoint está protegido. `*` indica método esperado; esas dos rutas no restringen el método HTTP en el registro actual.
 
 ## CORS
 
-El servidor responde con los headers `Access-Control-Allow-Origin: *` para los métodos `GET, POST, PUT, DELETE, OPTIONS`. En producción conviene restringir el origen.
+El servidor permite cualquier origen (`Access-Control-Allow-Origin: *`) y los métodos `GET`, `POST`, `PUT`, `DELETE` y `OPTIONS`. En producción conviene restringir los orígenes permitidos.
 
-## Notas
+## Prueba rápida
 
-- El servidor escucha en el puerto `3050` (ver `main.go`).
-- La conexión a la base de datos se cierra al finalizar (`defer db.CerrarConexion()`).
-- El driver `lib/pq` devuelve los campos de tipo fecha/timestamp nativamente como `time.Time` (no requiere `parseTime`).
-- Los placeholders SQL usan `$1`, `$2`, … (no `?`); los identificadores con uso de mayúsculas están entre comillas dobles (`"table"`).
-
-## Diferencias clave Postgres vs MySQL
-
-| Concepto | MySQL | PostgreSQL (este proyecto) |
-| --- | --- | --- |
-| Driver Go | `github.com/go-sql-driver/mysql` | `github.com/lib/pq` |
-| DSN | `user:pass@tcp(host:port)/db?parseTime=true` | `host=… port=… user=… password=… dbname=… sslmode=…` |
-| Placeholders | `?` | `$1`, `$2`, … |
-| Identificadores | `` `tabla` `` | `"tabla"` (sin comillas si son solo minúsculas) |
-| `AUTO_INCREMENT` | Sí | Usar `uuid_generate_v4()` o serial del proyecto |
-| Timestamp literal | `current_timestamp()` | `CURRENT_TIMESTAMP` (sin paréntesis) |
-| Formato fecha | `DATE_FORMAT(d, '%m-%Y')` | `TO_CHAR(d, 'MM-YYYY')` |
-| Soft deletes | `delete_flag` TINYINT | `delete_flag` SMALLINT (idéntico en queries) |
-| Booleanos | `TINYINT(1)` | `BOOLEAN` nativo |
-
-## Smoke test
-
-Con PostgreSQL configurado, el esquema aplicado y un usuario de prueba creado, iniciar el servidor y probar el login. Sustituir los marcadores por las credenciales del usuario de prueba:
+Con PostgreSQL configurado, el esquema aplicado y el servidor en ejecución, prueba el inicio de sesión:
 
 ```bash
 curl -X POST http://localhost:3050/api/loginSession \
@@ -194,13 +196,12 @@ curl -X POST http://localhost:3050/api/loginSession \
   -d '{"user":"<usuario>","password":"<contraseña>"}'
 ```
 
-Usar el token devuelto para probar un endpoint protegido, por ejemplo `GET /api/players`.
+Usa el token recibido como `Authorization: Bearer <token>` en los endpoints que lo requieran.
 
-## Troubleshooting
+## Solución de problemas
 
-- **Error de SSL** — verificar que `DB_SSLMODE` coincida con la configuración del servidor PostgreSQL.
-- **Error de autenticación** — verificar que los datos de conexión de `.env` coincidan con los de PostgreSQL.
-- **Error de conexión** — verificar que PostgreSQL esté iniciado y accesible desde el backend.
-- **`pq: relation "users" does not exist`** — no se ha aplicado el esquema. Ejecutar `psql … -f sql/schema_postgres.sql`.
-- **Tokens JWT no válidos / expirados** — verificar la variable `HASH` y reiniciar el servidor tras cambiarla.
-- **Google Calendar falla** — revisa `CALENDAR_ID`, `FILE_LOCATIONS` (o `GOOGLE_CREDENTIALS_JSON`) y permisos de la cuenta de servicio.
+- **Error de conexión a PostgreSQL:** verifica que el servidor esté disponible y que las variables `DB_*` sean correctas.
+- **Error de SSL:** verifica que `DB_SSLMODE` coincida con la configuración del servidor.
+- **`pq: relation ... does not exist`:** aplica `sql/schema_postgres.sql` en la base de datos utilizada por la aplicación.
+- **JWT inválido o expirado:** revisa `HASH` y reinicia la aplicación si cambias el secreto.
+- **Google Calendar no responde:** revisa `ENVIROMENT`, `CALENDAR_ID` y el origen de credenciales configurado (`FILE_LOCATIONS` o `GOOGLE_CREDENTIALS_JSON`), además de los permisos de la cuenta de servicio.

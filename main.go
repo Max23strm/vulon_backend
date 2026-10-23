@@ -100,8 +100,12 @@ func main() {
 
 	//PAYMENTS
 	r.HandleFunc(baseUrl+"/payments", routes.GetMonthPaymentsHandler).Methods("GET")
-	r.HandleFunc(baseUrl+"/payments/new-payment", routes.PostMonthPaymentsHandler).Methods("POST")
-	r.HandleFunc(baseUrl+"/paymentsTypes", routes.GetPaymentTypesHandler).Methods("GET")
+	// r.HandleFunc(baseUrl+"/payments/new-payment", routes.PostMonthPaymentsHandler).Methods("POST")
+	r.Handle(baseUrl+"/payments/new-payment", middleware.AuthMiddleware(http.HandlerFunc(routes.PostMonthPaymentsHandler))).Methods("POST")
+
+	r.HandleFunc(baseUrl+"/paymentsTypes/{entity_uid}", routes.GetPaymentTypesHandler).Methods("GET")
+	r.HandleFunc(baseUrl+"/paymentsCategory/{entity_uid}", routes.GetPaymentCategory).Methods("GET")
+	r.HandleFunc(baseUrl+"/paymentsCategory", routes.PostPaymentCategory).Methods("POST")
 	r.HandleFunc(baseUrl+"/payments/paymentById/{id}", routes.GetPaymentByIdHandler).Methods("GET")
 	r.HandleFunc(baseUrl+"/payments/deletePayment/{id}", routes.DeletePaymentByIdHandler).Methods("DELETE")
 	r.HandleFunc(baseUrl+"/payments/getPaymentsReport", routes.GetPaymentsReport).Methods("POST")

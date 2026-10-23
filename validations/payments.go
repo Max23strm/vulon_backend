@@ -28,6 +28,27 @@ func PaymentsPostValidations(payment models.PostPayments) []string {
 
 	return validationErrors
 }
+func PaymentsCatPostValidations(paymentCat models.PostPaymentsCategory) []string {
+
+	var validationErrors []string
+
+	if strings.TrimSpace(paymentCat.Entity_uid) == "" {
+		validationErrors = append(validationErrors, "Entity_uid is required.")
+	}
+	if strings.TrimSpace(paymentCat.Name) == "" {
+		validationErrors = append(validationErrors, "Name is required.")
+	}
+
+	if strings.TrimSpace(paymentCat.Payment_type_uid) == "" {
+		validationErrors = append(validationErrors, "Payment type is required.")
+	}
+
+	if paymentCat.Amount == 0 || paymentCat.Amount < 0 {
+		validationErrors = append(validationErrors, "Amount must be a number bigger than 0.")
+	}
+
+	return validationErrors
+}
 
 func PaymentsFileValidation(event models.PaymentFile) []string {
 
