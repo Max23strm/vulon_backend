@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Max23strm/pitz-backend/db"
@@ -60,87 +62,94 @@ func GetMonthPaymentsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func PostMonthPaymentsHandler(w http.ResponseWriter, r *http.Request) {
+	userUID, ok := r.Context().Value("userID").(string)
+	if !ok || userUID == "" {
+		helpers.UnauthorizedResponse(w, "Usuario no autenticado")
+		return
+	}
+
 	var payment models.PostPayments
 
 	if err := json.NewDecoder(r.Body).Decode(&payment); err != nil {
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   err.Error(),
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
+		helpers.BadRequestResponse(w, "No information sent", err, "EMPTY_DATA")
 		return
 	}
 
 	validationErrors := validations.PaymentsPostValidations(payment)
 
 	if len(validationErrors) > 0 {
+		message := strings.Join(validationErrors, ", ")
 
-		var errors []string
-		errors = append(errors, validationErrors...)
-
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   errors,
-		}
-
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
+		helpers.BadRequestResponse(
+			w,
+			message,
+			errors.New(message),
+			"VALIDATION_ERRORS",
+		)
 
 		return
 	}
 
 	new_uuid := uuid.New()
 	paymentSql := "INSERT INTO \"payments\" (\"payment_uid\", \"player_uid\", \"payment_reference\", \"amount\", \"comment\", \"date\", \"payment_type_uid\", \"created_at_dttm\", \"updated_at_dttm\", \"registered_by_uid\") VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $8);"
-	_, err := db.DB.Exec(paymentSql, new_uuid.String(), payment.Player_uid, payment.Payment_reference, payment.Amount, payment.Comment, payment.Date, payment.Payment_type_uid, payment.User_uid)
+	_, err := db.DB.Exec(paymentSql, new_uuid.String(), payment.Player_uid, payment.Payment_reference, payment.Amount, payment.Comment, payment.Date, payment.Payment_type_uid, userUID)
 
 	if err != nil {
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   "Error al crear en el sql",
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
+		helpers.BadRequestResponse(
+			w,
+			"Unable to store information",
+			err,
+			"STORING_ERROR",
+		)
 		return
 	}
 
-	uuidResponse := map[string]interface{}{
-		"isSuccess":   true,
-		"estado":      "Creado",
-		"payment_uid": new_uuid.String(),
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(uuidResponse)
+	helpers.CreatedResponse(
+		w,
+		"Stored succesfully",
+		new_uuid.String(),
+	)
 }
 
 func GetPaymentTypesHandler(w http.ResponseWriter, r *http.Request) {
 
-	paymentSQL := "SELECT * FROM payment_type"
+	if !validations.ValidateContext(w, r) {
+		return
+	}
+	vars := mux.Vars(r)
+	entity_uid, err := uuid.Parse(vars["entity_uid"])
+
+	if len(entity_uid) == 0 || err != nil {
+		helpers.BadRequestResponse(w, "Entity is required", errors.New("No entity"), "ENTITY_REQUIRED")
+		return
+	}
+
+	paymentSQL := "SELECT payment_type_uid, payment_name, system FROM payment_type WHERE entity_uid = $1"
 	payment_type := models.PaymentTypes{}
 
-	datos, err := db.DB.Query(paymentSQL)
+	datos, err := db.DB.Query(paymentSQL, entity_uid)
 	if err != nil {
-		w.Write([]byte("Error en la peticion"))
+		helpers.ErrorResponse(w, http.StatusInternalServerError, "Petition error", err)
+
 	}
 
 	for datos.Next() {
 		dato := models.PaymentType{}
-		err := datos.Scan(&dato.Payment_type_uid, &dato.Payment_name)
+		err := datos.Scan(&dato.Payment_type_uid, &dato.Payment_name, &dato.System)
 		if err != nil {
-			log.Println("Error obteniendo datos: ", err)
-			http.Error(w, "Error scanning data", http.StatusInternalServerError)
+			helpers.ErrorResponse(w, http.StatusBadRequest, "Error obtaining data", err)
 			return
 		}
 
 		payment_type = append(payment_type, dato)
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(payment_type)
+	if err := datos.Err(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error reading players")
+		return
+	}
+
+	helpers.SuccessResponse(w, "", payment_type)
 }
 
 func GetPaymentByIdHandler(w http.ResponseWriter, r *http.Request) {
@@ -395,4 +404,110 @@ func GetPaymentsReport(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+}
+
+func GetPaymentCategory(w http.ResponseWriter, r *http.Request) {
+	if !validations.ValidateContext(w, r) {
+		return
+	}
+	vars := mux.Vars(r)
+	entity_uid, err := uuid.Parse(vars["entity_uid"])
+
+	if len(entity_uid) == 0 || err != nil {
+		helpers.BadRequestResponse(w, "Entity is required", errors.New("No entity"), "ENTITY_REQUIRED")
+		return
+	}
+
+	paymentSQL := `SELECT 
+		pc.payment_cat_uid,
+		pc.name,
+		pc.amount,
+		t.payment_type_uid,
+		t.payment_name
+		FROM payment_category as pc
+	LEFT JOIN payment_type as t
+	ON t.payment_type_uid = pc.payment_type_uid
+	WHERE pc.entity_uid = $1 and pc.delete_flag = 0`
+	payment_type := models.PaymentsCategories{}
+
+	datos, err := db.DB.Query(paymentSQL, entity_uid)
+	if err != nil {
+		helpers.ErrorResponse(w, http.StatusInternalServerError, "Petition error", err)
+		return
+	}
+	defer datos.Close()
+
+	for datos.Next() {
+		dato := models.PaymentsCategory{}
+		err := datos.Scan(
+			&dato.Payment_cat_uid,
+			&dato.Name,
+			&dato.Amount,
+			&dato.Payment_type_uid,
+			&dato.Payment_type_name,
+		)
+		if err != nil {
+			helpers.ErrorResponse(w, http.StatusBadRequest, "Error obtaining data", err)
+			return
+		}
+
+		payment_type = append(payment_type, dato)
+	}
+
+	if err := datos.Err(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error reading players")
+		return
+	}
+
+	helpers.SuccessResponse(w, "", payment_type)
+}
+
+func PostPaymentCategory(w http.ResponseWriter, r *http.Request) {
+	if !validations.ValidateContext(w, r) {
+		return
+	}
+
+	var paymentCat models.PostPaymentsCategory
+
+	if err := json.NewDecoder(r.Body).Decode(&paymentCat); err != nil {
+		helpers.BadRequestResponse(w, "No information sent", err, "EMPTY_DATA")
+		return
+	}
+
+	validationErrors := validations.PaymentsCatPostValidations(paymentCat)
+
+	if len(validationErrors) > 0 {
+		message := strings.Join(validationErrors, ", ")
+
+		helpers.BadRequestResponse(
+			w,
+			message,
+			errors.New(message),
+			"VALIDATION_ERRORS",
+		)
+
+		return
+	}
+
+	new_uuid := uuid.New()
+	paymentSql := `INSERT INTO payment_category
+		(payment_cat_uid, entity_uid, name, amount, payment_type_uid)
+		VALUES ($1, $2, $3, $4, $5)`
+	_, err := db.DB.Exec(paymentSql, new_uuid.String(), paymentCat.Entity_uid, paymentCat.Name, paymentCat.Amount, paymentCat.Payment_type_uid)
+
+	if err != nil {
+		helpers.BadRequestResponse(
+			w,
+			"Unable to store information",
+			err,
+			"STORING_ERROR",
+		)
+		return
+	}
+
+	helpers.CreatedResponse(
+		w,
+		"Stored succesfully",
+		new_uuid.String(),
+	)
 }
