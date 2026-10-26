@@ -100,6 +100,7 @@ func main() {
 
 	//PAYMENTS
 	r.HandleFunc(baseUrl+"/payments", routes.GetMonthPaymentsHandler).Methods("GET")
+	r.HandleFunc(baseUrl+"/payments/stats", routes.GetMonthPaymentsStatsHandler).Methods("GET")
 	// r.HandleFunc(baseUrl+"/payments/new-payment", routes.PostMonthPaymentsHandler).Methods("POST")
 	r.Handle(baseUrl+"/payments/new-payment", middleware.AuthMiddleware(http.HandlerFunc(routes.PostMonthPaymentsHandler))).Methods("POST")
 
