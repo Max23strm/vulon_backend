@@ -6,7 +6,9 @@ import (
 	"net/http"
 
 	"github.com/Max23strm/pitz-backend/db"
+	"github.com/Max23strm/pitz-backend/helpers"
 	"github.com/Max23strm/pitz-backend/models"
+	"github.com/Max23strm/pitz-backend/queries"
 	"github.com/Max23strm/pitz-backend/validations"
 	"github.com/gorilla/mux"
 )
@@ -15,47 +17,30 @@ func GetUsersHandler(w http.ResponseWriter, r *http.Request) {
 	if !validations.ValidateContext(w, r) {
 		return
 	}
-	userSql := "SELECT user_uid, username, first_name, last_name from users"
+	userSql := queries.UserSql
 
 	allUsers := models.AllUserArr{}
 	usersData, err := db.DB.Query(userSql)
 	if err != nil {
-		// Other error (e.g., database or scan error)
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   "Error obteniendo usuario: " + err.Error(),
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
+		helpers.BadRequestResponse(w, "Error fetching users", err, "8894")
 		return
 	}
 	for usersData.Next() {
 		currentUser := models.AllUsers{}
 		err := usersData.Scan(&currentUser.User_uid, &currentUser.Username, &currentUser.First_name, &currentUser.Last_name)
 		if err != nil {
-			// Other error (e.g., database or scan error)
-			respuesta := map[string]interface{}{
-				"isSuccess": false,
-				"estado":    "Error",
-				"mensaje":   "Error obteniendo usuario: " + err.Error(),
-			}
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(respuesta)
+			helpers.BadRequestResponse(w, "Error scanning users", err, "8895")
 			return
 		}
 
 		allUsers = append(allUsers, currentUser)
 	}
-
-	respuesta := map[string]interface{}{
-		"isSuccess": true,
-		"estado":    "Error",
-		"data":      allUsers,
+	if usersData.Err() != nil {
+		helpers.BadRequestResponse(w, "Error obtaining users", err, "8894")
+		return
 	}
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(respuesta)
 
+	helpers.SuccessResponse(w, "ok", allUsers)
 }
 
 func GetUserHandler(w http.ResponseWriter, r *http.Request) {

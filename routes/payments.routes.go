@@ -25,6 +25,7 @@ func GetMonthPaymentsHandler(w http.ResponseWriter, r *http.Request) {
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		http.Error(w, "Invalid date format. Use YYYY-MM-DD", http.StatusBadRequest)
+		helpers.ErrorResponse(w, http.StatusBadRequest, "Error en la peticion", err)
 		return
 	}
 
@@ -42,6 +43,7 @@ func GetMonthPaymentsHandler(w http.ResponseWriter, r *http.Request) {
 
 	datos, err := db.DB.Query(paymentSQL, startOfMonthFormated, endOfMonthFormated)
 	if err != nil {
+		helpers.InternalServerErrorResponse(w, "Error en la peticion")
 		w.Write([]byte("Error en la peticion"))
 	}
 
@@ -57,8 +59,106 @@ func GetMonthPaymentsHandler(w http.ResponseWriter, r *http.Request) {
 		payments = append(payments, dato)
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(payments)
+	helpers.SuccessResponse(w, "ok", payments)
+}
+
+func GetMonthPaymentsStatsHandler(w http.ResponseWriter, r *http.Request) {
+	dateStr := r.URL.Query().Get("date")
+	date, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		helpers.BadRequestResponse(w, "Invalid date format. Use YYYY-MM-DD", err, "INVALID_DATE")
+		return
+	}
+
+	monthStart := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, time.UTC)
+	nextMonth := monthStart.AddDate(0, 1, 0)
+
+	// Dynamic payment names are represented as keys in each response object.
+	typeRows, err := db.DB.QueryContext(r.Context(), `
+		SELECT DISTINCT payment_name
+		FROM payment_type
+		WHERE payment_name IS NOT NULL
+		ORDER BY payment_name
+	`)
+	if err != nil {
+		helpers.InternalServerErrorResponse(w, "Error obteniendo tipos de pago")
+		return
+	}
+
+	paymentNames := make([]string, 0)
+	for typeRows.Next() {
+		var paymentName string
+		if err := typeRows.Scan(&paymentName); err != nil {
+			typeRows.Close()
+			helpers.InternalServerErrorResponse(w, "Error leyendo tipos de pago")
+			return
+		}
+		paymentNames = append(paymentNames, paymentName)
+	}
+	if err := typeRows.Err(); err != nil {
+		typeRows.Close()
+		helpers.InternalServerErrorResponse(w, "Error leyendo tipos de pago")
+		return
+	}
+	if err := typeRows.Close(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error cerrando consulta de tipos de pago")
+		return
+	}
+
+	daysInMonth := nextMonth.AddDate(0, 0, -1).Day()
+	stats := make([]map[string]interface{}, 0, daysInMonth)
+	dayRows := make(map[string]map[string]interface{}, daysInMonth)
+	for day := monthStart; day.Before(nextMonth); day = day.AddDate(0, 0, 1) {
+		entry := make(map[string]interface{}, len(paymentNames)+1)
+		for _, paymentName := range paymentNames {
+			entry[paymentName] = float64(0)
+		}
+		entry["date"] = day.Format("Jan 2")
+		stats = append(stats, entry)
+		dayRows[day.Format("2006-01-02")] = entry
+	}
+
+	const statsSQL = `
+		SELECT payments.date::date, payment_type.payment_name, COALESCE(SUM(payments.amount), 0)
+		FROM payments
+		INNER JOIN payment_type
+			ON payments.payment_type_uid = payment_type.payment_type_uid
+		WHERE payments.delete_flag = 0
+			AND payments.date >= $1
+			AND payments.date < $2
+		GROUP BY payments.date::date, payment_type.payment_name
+	`
+
+	rows, err := db.DB.QueryContext(r.Context(), statsSQL, monthStart, nextMonth)
+	if err != nil {
+		helpers.InternalServerErrorResponse(w, "Error obteniendo estadísticas de pagos")
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var paymentDate time.Time
+		var paymentName string
+		var amount float64
+		if err := rows.Scan(&paymentDate, &paymentName, &amount); err != nil {
+			helpers.InternalServerErrorResponse(w, "Error leyendo estadísticas de pagos")
+			return
+		}
+
+		if entry, ok := dayRows[paymentDate.Format("2006-01-02")]; ok {
+			entry[paymentName] = amount
+		}
+	}
+	if err := rows.Err(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error leyendo estadísticas de pagos")
+		return
+	}
+	helpers.SuccessResponse(w, "ok", stats)
+	// w.Header().Set("Content-Type", "application/json")
+	// w.WriteHeader(http.StatusOK)
+	// if err := json.NewEncoder(w).Encode(stats); err != nil {
+	// 	log.Println("Error encoding monthly payment stats:", err)
+	// }
 }
 
 func PostMonthPaymentsHandler(w http.ResponseWriter, r *http.Request) {
@@ -165,34 +265,15 @@ func GetPaymentByIdHandler(w http.ResponseWriter, r *http.Request) {
 	err := paymentRow.Scan(&payment.Payment_uid, &payment.Player_reference, &payment.Amount, &payment.Comment, &payment.Date, &payment.Player_name, &payment.Player_uid, &payment.Payment_name, &payment.Creator_name)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respuesta := map[string]interface{}{
-				"isSuccess": false,
-				"estado":    "Error",
-				"mensaje":   "No encontrado",
-			}
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(respuesta)
+			helpers.InternalServerErrorResponse(w, "Error scanning rows")
 			return
 		}
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   "Error obteniendo pago: " + err.Error(),
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
+		helpers.InternalServerErrorResponse(w, "Error obtaining payment")
 
 		return
 	}
 
-	respuesta := map[string]interface{}{
-		"isSuccess": true,
-		"estado":    "Ok",
-		"data":      payment,
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(respuesta)
+	helpers.SuccessResponse(w, "ok", payment)
 }
 
 func DeletePaymentByIdHandler(w http.ResponseWriter, r *http.Request) {

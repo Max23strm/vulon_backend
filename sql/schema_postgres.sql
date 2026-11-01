@@ -177,6 +177,8 @@ CREATE INDEX IF NOT EXISTS "idx_payments_delete_flag" ON "payments" ("delete_fla
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS "expenses" (
     "expense_uid" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    "expense_type_uid" UUID NOT NULL,
+    "schedule_expense_uid" UUID,
     "assigned_uid" UUID NOT NULL,
     "registered_by_uid" UUID NOT NULL,
     "reason" TEXT NOT NULL,
@@ -187,12 +189,44 @@ CREATE TABLE IF NOT EXISTS "expenses" (
     "delete_flag" SMALLINT NOT NULL DEFAULT 0,
     CONSTRAINT "fk_expenses_assigned"
         FOREIGN KEY ("assigned_uid") REFERENCES "users" ("user_uid"),
+    CONSTRAINT "fk_expenses_types"
+        FOREIGN KEY ("expense_type_uid") REFERENCES "expense_type" ("expense_type_uid"),
     CONSTRAINT "fk_expenses_registered_by"
         FOREIGN KEY ("registered_by_uid") REFERENCES "users" ("user_uid")
 );
 
 CREATE INDEX IF NOT EXISTS "idx_expenses_date" ON "expenses" ("date");
 CREATE INDEX IF NOT EXISTS "idx_expenses_delete_flag" ON "expenses" ("delete_flag");
+
+CREATE TABLE IF NOT EXISTS "schedule_expense" (
+    "schedule_expense_uid" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    "expense_type_uid" UUID NOT NULL,
+    "registered_by_uid" UUID NOT NULL,
+    "name" TEXT NOT NULL,
+    "amount" NUMERIC(12, 2) NOT NULL,
+    "currency_code" CHAR(3) NOT NULL DEFAULT 'USD',
+    "next_due_date" TIMESTAMP NOT NULL,
+    "is_active" SMALLINT NOT NULL DEFAULT 0,
+    "created_at_dttm" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at_dttm" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "delete_flag" SMALLINT NOT NULL DEFAULT 0,
+    CONSTRAINT "fk_expenses_assigned"
+        FOREIGN KEY ("expense_type_uid") REFERENCES "expense_type" ("expense_type_uid"),
+    CONSTRAINT "fk_schedule_expenses_registered_by"
+        FOREIGN KEY ("registered_by_uid") REFERENCES "users" ("user_uid")
+);
+
+CREATE INDEX IF NOT EXISTS "idx_expenses_due" ON "schedule_expense" ("is_active");
+CREATE TABLE IF NOT EXISTS "expense_type" (
+    "expense_type_uid" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    "registered_by_uid" UUID NOT NULL,
+    "description" TEXT NOT NULL,
+    "created_at_dttm" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at_dttm" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "delete_flag" SMALLINT NOT NULL DEFAULT 0,
+    CONSTRAINT "fk_schedule_expenses_type_by"
+        FOREIGN KEY ("registered_by_uid") REFERENCES "users" ("user_uid")
+);
 
 -- =====================================================================
 -- ENTITIES
