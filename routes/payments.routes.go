@@ -265,34 +265,15 @@ func GetPaymentByIdHandler(w http.ResponseWriter, r *http.Request) {
 	err := paymentRow.Scan(&payment.Payment_uid, &payment.Player_reference, &payment.Amount, &payment.Comment, &payment.Date, &payment.Player_name, &payment.Player_uid, &payment.Payment_name, &payment.Creator_name)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			respuesta := map[string]interface{}{
-				"isSuccess": false,
-				"estado":    "Error",
-				"mensaje":   "No encontrado",
-			}
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(respuesta)
+			helpers.InternalServerErrorResponse(w, "Error scanning rows")
 			return
 		}
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   "Error obteniendo pago: " + err.Error(),
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
+		helpers.InternalServerErrorResponse(w, "Error obtaining payment")
 
 		return
 	}
 
-	respuesta := map[string]interface{}{
-		"isSuccess": true,
-		"estado":    "Ok",
-		"data":      payment,
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(respuesta)
+	helpers.SuccessResponse(w, "ok", payment)
 }
 
 func DeletePaymentByIdHandler(w http.ResponseWriter, r *http.Request) {

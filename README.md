@@ -167,6 +167,7 @@ La base de las rutas es `/api`. Las rutas y métodos siguientes reflejan el regi
 | POST | `/api/payments/getPaymentsReport` | Generar reporte de pagos en Excel. |
 | GET | `/api/expenses` | Consultar gastos del mes. |
 | POST | `/api/expenses/new-expense` | Registrar gasto. |
+| GET | `/api/expenses/summary?date=YYYY-MM-DD` | En `data` devuelve `total_spent`, `pending_scheduled_expenses` (programados activos del mes sin gasto asociado registrado ese mes) y `next_scheduled_payment` (nombre y fecha del próximo programado activo del mes, o `null`). Requiere bearer token. |
 | `Get` | `/api/expenses/{id}` | Obtener gasto por ID. **La ruta está registrada con mayúscula/minúscula incorrecta** y puede no aceptar solicitudes HTTP `GET`; cambiar el método en `main.go` a `GET`. |
 | DELETE | `/api/expenses/deleteExpense/{id}` | Eliminar gasto. |
 | POST | `/api/expenses/getExpensesReport` | Generar reporte de gastos en Excel. |

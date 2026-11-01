@@ -113,13 +113,17 @@ func main() {
 
 	//Expenses
 	r.HandleFunc(baseUrl+"/expenses", routes.GetMonthExpensesHandler).Methods("GET")
-	r.HandleFunc(baseUrl+"/expenses/new-expense", routes.PostNewExpenseHandler).Methods("POST")
+	r.HandleFunc(baseUrl+"/expenses/summary", routes.GetMonthlyExpensesSummaryHandler).Methods("GET")
+	r.Handle(baseUrl+"/expenses/new-expense", middleware.AuthMiddleware(http.HandlerFunc(routes.PostNewExpenseHandler))).Methods("POST")
+	// r.HandleFunc(baseUrl+"/expenses/new-expense", routes.PostNewExpenseHandler).Methods("POST")
 	r.HandleFunc(baseUrl+"/expenses/{id}", routes.GetMonthExpensesByIdHandler).Methods("Get")
 	r.HandleFunc(baseUrl+"/expenses/deleteExpense/{id}", routes.DeleteExpenseByIdHandler).Methods("DELETE")
 	r.HandleFunc(baseUrl+"/expenses/getExpensesReport", routes.GetExpensesReport).Methods("POST")
+	r.HandleFunc(baseUrl+"/expenseTypes", routes.GetExpensesTypesHandler).Methods("GET")
+	r.HandleFunc(baseUrl+"/scheduleExpenses", routes.GetScheduleExpensesHandler).Methods("GET")
 
 	//Users
-	r.HandleFunc(baseUrl+"/users/", routes.GetUsersHandler).Methods("GET")
+	r.HandleFunc(baseUrl+"/users", routes.GetUsersHandler).Methods("GET")
 	r.HandleFunc(baseUrl+"/users/basics/{id}", routes.GetBasicUserHandler).Methods("GET")
 	r.HandleFunc(baseUrl+"/users/{id}", routes.GetUserHandler).Methods("GET")
 	r.HandleFunc(baseUrl+"/updateUserPassword/{id}", routes.UpdateUserHandler).Methods("PUT")

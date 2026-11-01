@@ -4,78 +4,72 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Max23strm/pitz-backend/db"
 	"github.com/Max23strm/pitz-backend/helpers"
 	"github.com/Max23strm/pitz-backend/models"
+	"github.com/Max23strm/pitz-backend/queries"
 	"github.com/Max23strm/pitz-backend/validations"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
 func PostNewExpenseHandler(w http.ResponseWriter, r *http.Request) {
-	if !validations.ValidateContext(w, r) {
+	userUID, ok := r.Context().Value("userID").(string)
+	if !ok || userUID == "" {
+		fmt.Println(ok, userUID)
+		helpers.UnauthorizedResponse(w, "Usuario no autenticado")
 		return
 	}
+
 	var expense models.PostExpenses
 
 	if err := json.NewDecoder(r.Body).Decode(&expense); err != nil {
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   err.Error(),
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
+		helpers.BadRequestResponse(w, "Invalid form", err, "505")
 		return
 	}
 
 	validationErrors := validations.ExpenesePostValidations(expense)
 
 	if len(validationErrors) > 0 {
+		message := strings.Join(validationErrors, ", ")
 
-		var errors []string
-		errors = append(errors, validationErrors...)
-
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   errors,
-		}
-
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
+		helpers.BadRequestResponse(
+			w,
+			message,
+			errors.New(message),
+			"VALIDATION_ERRORS",
+		)
 
 		return
 	}
 
 	new_uuid := uuid.New()
-	expenseSql := "INSERT INTO \"expenses\"(\"expense_uid\", \"assigned_uid\", \"reason\", \"amount\", \"created_at_dttm\", \"updated_at_dttm\", \"registered_by_uid\", \"date\") VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $5, $6);"
-	_, err := db.DB.Exec(expenseSql, new_uuid.String(), expense.Assigned_uid, expense.Reason, expense.Amount, expense.Registered_by, expense.Date)
+	expenseSql := queries.PostNewExpense
+	_, err := db.DB.Exec(
+		expenseSql,
+		new_uuid.String(),
+		expense.Assigned_uid,
+		expense.Reason,
+		expense.Amount,
+		userUID,
+		expense.Date,
+		expense.Expense_type_uid,
+		expense.Schedule_expense_uid,
+	)
 
 	if err != nil {
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   "Error al crear en el sql",
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
+		helpers.BadRequestResponse(w, "Error posting", err, "25")
 		return
 	}
 
-	uuidResponse := map[string]interface{}{
-		"isSuccess":   true,
-		"estado":      "Creado",
-		"payment_uid": new_uuid.String(),
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(uuidResponse)
+	helpers.CreatedResponse(w, "ok", new_uuid.String())
 }
 
 func GetMonthExpensesHandler(w http.ResponseWriter, r *http.Request) {
@@ -83,10 +77,9 @@ func GetMonthExpensesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dateStr := r.URL.Query().Get("date")
-
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		http.Error(w, "Invalid date format. Use YYYY-MM-DD", http.StatusBadRequest)
+		helpers.BadRequestResponse(w, "Invalid date format. Use YYYY-MM-DD", err, "505")
 		return
 	}
 
@@ -99,81 +92,228 @@ func GetMonthExpensesHandler(w http.ResponseWriter, r *http.Request) {
 	startOfMonthFormated := startOfMonth.Format("2006-01-02 15:04:05")
 	endOfMonthFormated := endOfMonth.Format("2006-01-02 15:04:05")
 
-	expensesSQL := "SELECT expenses.expense_uid, expenses.reason, CONCAT(assigned.first_name, ' ', assigned.last_name) AS assigned_to,  expenses.amount,  expenses.date FROM \"expenses\" INNER JOIN users AS assigned ON expenses.assigned_uid = assigned.user_uid INNER JOIN users AS registrar ON expenses.registered_by_uid = registrar.user_uid  WHERE expenses.delete_flag = 0 AND expenses.date BETWEEN $1 AND $2  ORDER by expenses.date DESC"
+	expensesSQL := queries.SelectExpensesListByDatesSQL
 	expenses := models.MonthlyExpensesGroup{}
 
 	datos, err := db.DB.Query(expensesSQL, startOfMonthFormated, endOfMonthFormated)
-	if err != nil {
-		w.Write([]byte("Error en la peticion"))
+	if err != nil || datos.Err() != nil {
+		fmt.Println("-------------", err)
+		helpers.InternalServerErrorResponse(w, "Error fetching rows")
+		return
 	}
-
 	for datos.Next() {
 		dato := models.MonthlyExpenses{}
-		err := datos.Scan(&dato.Expense_uid, &dato.Reason, &dato.Assigned_to, &dato.Amount, &dato.Date)
+		var scheduledExpenseUID, scheduledExpenseName sql.NullString
+
+		err := datos.Scan(
+			&dato.Expense_uid,
+			&dato.Reason,
+			&dato.Assigned_to,
+			&dato.Expense_type_uid,
+			&dato.Expense_type,
+			&scheduledExpenseUID,
+			&scheduledExpenseName,
+			&dato.Amount,
+			&dato.Date,
+		)
 		if err != nil {
-			respuesta := map[string]interface{}{
-				"isSuccess": false,
-				"estado":    "Error",
-				"mensaje":   "Error obteniendo datos",
-			}
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(respuesta)
+			fmt.Println(err)
+			helpers.InternalServerErrorResponse(w, "Error scanning rows")
 			return
 		}
 
 		expenses = append(expenses, dato)
 	}
 
-	respuesta := map[string]interface{}{
-		"isSuccess": true,
-		"estado":    "Ok",
-		"data":      expenses,
-	}
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(respuesta)
+	helpers.SuccessResponse(w, "ok", expenses)
 }
+func GetMonthlyExpensesSummaryHandler(w http.ResponseWriter, r *http.Request) {
+	if !validations.ValidateContext(w, r) {
+		return
+	}
+
+	dateStr := r.URL.Query().Get("date")
+	date, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		helpers.BadRequestResponse(w, "Invalid date format. Use YYYY-MM-DD", err, "INVALID_DATE")
+		return
+	}
+
+	monthStart := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, time.UTC)
+	nextMonth := monthStart.AddDate(0, 1, 0)
+
+	summary := models.MonthlyExpensesSummary{
+		Pending_scheduled_expenses: make([]models.ScheduledExpenseSummary, 0),
+	}
+	if err := db.DB.QueryRowContext(
+		r.Context(),
+		queries.GetMonthlyExpensesTotal,
+		monthStart,
+		nextMonth,
+	).Scan(&summary.Total_spent); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error obteniendo el total de gastos")
+		return
+	}
+
+	rows, err := db.DB.QueryContext(
+		r.Context(),
+		queries.GetPendingScheduledExpensesForMonth,
+		monthStart,
+		nextMonth,
+	)
+	if err != nil {
+		helpers.InternalServerErrorResponse(w, "Error obteniendo los gastos programados pendientes")
+		return
+	}
+	for rows.Next() {
+		var expense models.ScheduledExpenseSummary
+		if err := rows.Scan(
+			&expense.Schedule_expense_uid,
+			&expense.Name,
+			&expense.Amount,
+			&expense.Currency_code,
+			&expense.Next_due_date,
+		); err != nil {
+			rows.Close()
+			helpers.InternalServerErrorResponse(w, "Error leyendo los gastos programados pendientes")
+			return
+		}
+		summary.Pending_scheduled_expenses = append(summary.Pending_scheduled_expenses, expense)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		helpers.InternalServerErrorResponse(w, "Error leyendo los gastos programados pendientes")
+		return
+	}
+	if err := rows.Close(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error cerrando la consulta de gastos programados")
+		return
+	}
+
+	var nextPayment models.NextScheduledExpense
+	err = db.DB.QueryRowContext(
+		r.Context(),
+		queries.GetNextScheduledExpenseForMonth,
+		monthStart,
+		nextMonth,
+	).Scan(&nextPayment.Name, &nextPayment.Date)
+	if err != nil && err != sql.ErrNoRows {
+		helpers.InternalServerErrorResponse(w, "Error obteniendo el próximo pago programado")
+		return
+	}
+	if err == nil {
+		summary.Next_scheduled_payment = &nextPayment
+	}
+
+	helpers.SuccessResponse(w, "ok", summary)
+}
+
+func GetExpensesTypesHandler(w http.ResponseWriter, r *http.Request) {
+	if !validations.ValidateContext(w, r) {
+		return
+	}
+
+	expenseTypeSql := queries.GetExpensesTypes
+	expensesTypes := models.ExpenseTypes{}
+
+	datos, err := db.DB.Query(expenseTypeSql)
+	if err != nil {
+		fmt.Println("Query expense types:", err)
+		helpers.InternalServerErrorResponse(w, "Error querying expense types")
+		return
+	}
+	defer datos.Close()
+	if err := datos.Err(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error reading expense types")
+		return
+	}
+	for datos.Next() {
+		dato := models.ExpenseType{}
+		err := datos.Scan(&dato.Expense_type_uid, &dato.Description)
+		if err != nil {
+			helpers.InternalServerErrorResponse(w, "Error scanning rows")
+			return
+		}
+
+		expensesTypes = append(expensesTypes, dato)
+	}
+
+	helpers.SuccessResponse(w, "ok", expensesTypes)
+}
+func GetScheduleExpensesHandler(w http.ResponseWriter, r *http.Request) {
+	if !validations.ValidateContext(w, r) {
+		return
+	}
+
+	schExpenseTypeSql := queries.GetScheduledExpenses
+	scheduleExpenses := models.ScheduleExpensesGet{}
+
+	datos, err := db.DB.Query(schExpenseTypeSql)
+	if err != nil {
+		fmt.Println("Query expense types:", err)
+		helpers.InternalServerErrorResponse(w, "Error querying schedule expenses")
+		return
+	}
+	defer datos.Close()
+	if err := datos.Err(); err != nil {
+		helpers.InternalServerErrorResponse(w, "Error reading expense types")
+		return
+	}
+	for datos.Next() {
+		dato := models.ScheduleExpenseGet{}
+		err := datos.Scan(&dato.Schedule_expense_uid,
+			&dato.Expense_type_uid,
+			&dato.Expense_type_name,
+			&dato.Name,
+			&dato.Amount,
+			&dato.Currency_code)
+		if err != nil {
+			helpers.InternalServerErrorResponse(w, "Error scanning rows")
+			return
+		}
+
+		scheduleExpenses = append(scheduleExpenses, dato)
+	}
+
+	helpers.SuccessResponse(w, "ok", scheduleExpenses)
+}
+
 func GetMonthExpensesByIdHandler(w http.ResponseWriter, r *http.Request) {
 	if !validations.ValidateContext(w, r) {
 		return
 	}
-	expenseSql := "SELECT expenses.assigned_uid as assigned_to_uid, CONCAT(assigned.first_name, ' ', assigned.last_name) as assigned_to, expenses.reason, expenses.amount, expenses.registered_by_uid, expenses.date FROM \"expenses\" INNER JOIN users on users.user_uid = expenses.registered_by_uid INNER JOIN users as assigned on assigned.user_uid = expenses.assigned_uid WHERE expense_uid = $1"
+	expenseSql := queries.ExpenseByID
 	vars := mux.Vars(r)
-
-	expenseRow := db.DB.QueryRow(expenseSql, vars["id"]) // e.g., "2025-06-01"
-
+	fmt.Println(vars["id"])
+	expenseRow := db.DB.QueryRow(expenseSql, vars["id"])
 	expense := models.GetExpenseId{}
 
-	err := expenseRow.Scan(&expense.Assigned_to_uid, &expense.Assigned_to, &expense.Reason, &expense.Amount, &expense.Registered_by_uid, &expense.Date)
+	err := expenseRow.Scan(
+		&expense.Assigned_to_uid,
+		&expense.Assigned_to,
+		&expense.Reason,
+		&expense.Amount,
+		&expense.Registered_by_uid,
+		&expense.Registered_by,
+		&expense.Date,
+		&expense.Expense_type_uid,
+		&expense.Expense_type,
+		&expense.Schedule_name,
+		&expense.Schedule_expense_uid,
+	)
 	if err != nil {
+		fmt.Println(err)
 		if err == sql.ErrNoRows {
-			respuesta := map[string]interface{}{
-				"isSuccess": false,
-				"estado":    "Error",
-				"mensaje":   "No encontrado",
-			}
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(respuesta)
+			helpers.NotFoundResponse(w, "No encontrado")
 			return
 		}
-		respuesta := map[string]interface{}{
-			"isSuccess": false,
-			"estado":    "Error",
-			"mensaje":   "Error obteniendo pago: " + err.Error(),
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(respuesta)
-
+		helpers.BadRequestResponse(w, "Error obteniendo pago", err, "30")
 		return
 	}
 
-	respuesta := map[string]interface{}{
-		"isSuccess": true,
-		"estado":    "Ok",
-		"data":      expense,
-	}
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(respuesta)
+	helpers.SuccessResponse(w, "ok", expense)
 }
+
 func DeleteExpenseByIdHandler(w http.ResponseWriter, r *http.Request) {
 	if !validations.ValidateContext(w, r) {
 		return
