@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS "events_state" (
     "event_state_uid" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     "event_state" VARCHAR(100) NOT NULL,
     "event_state_type" INTEGER NOT NULL,
+    "is_final" BOOLEAN NOT NULL DEFAULT FALSE,
 );
 
 -- =====================================================================
@@ -79,8 +80,11 @@ CREATE TABLE IF NOT EXISTS "events" (
     "event_uid" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     "event_type" UUID NOT NULL,
     "event_state_uid" UUID NOT NULL,
+    "entity_uid" UUID NOT NULL,
     "event_name" VARCHAR(255) NOT NULL,
-    "date" TIMESTAMP NOT NULL,
+    "date_start" TIMESTAMPTZ NOT NULL,
+    "date_end" TIMESTAMPTZ NOT NULL,
+    "time_zone" TEXT NOT NULL DEFAULT 'America/Cancun',
     "address" TEXT,
     "coordinates" VARCHAR(255),
     "created_at_dttm" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -88,6 +92,8 @@ CREATE TABLE IF NOT EXISTS "events" (
     "delete_flag" SMALLINT NOT NULL DEFAULT 0,
     CONSTRAINT "fk_events_event_type"
         FOREIGN KEY ("event_type") REFERENCES "event_types" ("event_type_uid"),
+    CONSTRAINT "fk_events_enitity_assigned"
+        FOREIGN KEY ("entity_uid") REFERENCES "enitites" ("entity_uid"),
     CONSTRAINT "fk_events_event_state"
         FOREIGN KEY ("event_state_uid") REFERENCES "events_state" ("event_state_uid")
     
@@ -344,14 +350,18 @@ CREATE TABLE IF NOT EXISTS "players_assignation" (
 -- =====================================================================
 INSERT INTO "event_types" ("event_type_uid", "type_name") VALUES
     (uuid_generate_v4(), 'Entrenamiento'),
+    (uuid_generate_v4(), 'Torneo'),
     (uuid_generate_v4(), 'Partido'),
     (uuid_generate_v4(), 'Reunión');
 
-INSERT INTO "events_state" ("event_state_uid", "event_state") VALUES
-    (uuid_generate_v4(), 'Pendiente'),
-    (uuid_generate_v4(), 'Confirmado'),
-    (uuid_generate_v4(), 'Cancelado'),
-    (uuid_generate_v4(), 'Finalizado');
+INSERT INTO "events_state" ("event_state_uid", "event_state", "event_state_type", "is_final") VALUES
+    (uuid_generate_v4(), 'scheduled', 3, FALSE),
+    (uuid_generate_v4(), 'confirmed', 4, FALSE),
+    (uuid_generate_v4(), 'to_be_defined', 5, FALSE),
+    (uuid_generate_v4(), 'postponed', 6, FALSE),
+    (uuid_generate_v4(), 'rescheduled', 7, FALSE),
+    (uuid_generate_v4(), 'finished', 1, TRUE),
+    (uuid_generate_v4(), 'suspended', 2, TRUE);
 
 INSERT INTO "asistance_types" ("asistance_type_uid", "name") VALUES
     (uuid_generate_v4(), 'Asistió'),

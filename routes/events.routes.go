@@ -11,6 +11,7 @@ import (
 	"github.com/Max23strm/pitz-backend/db"
 	"github.com/Max23strm/pitz-backend/helpers"
 	"github.com/Max23strm/pitz-backend/models"
+	"github.com/Max23strm/pitz-backend/queries"
 	"github.com/Max23strm/pitz-backend/validations"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -28,7 +29,18 @@ func GetEventsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventsSql := "SELECT event_uid, event_type, date, event_name, event_types.type_name, events_state.event_state, events_state.event_state_type FROM events INNER JOIN event_types ON events.event_type = event_types.event_type_uid INNER JOIN events_state ON events.event_state_uid = events_state.event_state_uid WHERE entity_uid = $1;"
+	tzRequested := r.URL.Query().Get("time_zone")
+	var convertLoc *time.Location
+	if tzRequested != "" {
+		loc, err := time.LoadLocation(tzRequested)
+		if err != nil {
+			helpers.BadRequestResponse(w, "Invalid time_zone", err, "INVALID_TIME_ZONE")
+			return
+		}
+		convertLoc = loc
+	}
+
+	eventsSql := "SELECT event_uid, event_type, date, events.time_zone, event_name, event_types.type_name, events_state.event_state, events_state.event_state_type FROM events INNER JOIN event_types ON events.event_type = event_types.event_type_uid INNER JOIN events_state ON events.event_state_uid = events_state.event_state_uid WHERE entity_uid = $1;"
 	events := models.Events{}
 
 	datos, err := db.DB.Query(eventsSql, entity_uid)
@@ -41,10 +53,14 @@ func GetEventsHandler(w http.ResponseWriter, r *http.Request) {
 
 	for datos.Next() {
 		dato := models.Event{}
-		err := datos.Scan(&dato.Event_uid, &dato.Event_type_uid, &dato.Date, &dato.Event_name, &dato.Type_name, &dato.Event_state, &dato.Event_state_type)
+		err := datos.Scan(&dato.Event_uid, &dato.Event_type_uid, &dato.Date_start, &dato.Date_end, &dato.TimeZone, &dato.Event_name, &dato.Type_name, &dato.Event_state, &dato.Event_state_type)
 		if err != nil {
 			helpers.BadRequestResponse(w, "Error scanning", err, "DATA_ERROR")
 			return
+		}
+		if convertLoc != nil {
+			dato.Date_start = dato.Date_start.In(convertLoc)
+			dato.Date_end = dato.Date_end.In(convertLoc)
 		}
 		events = append(events, dato)
 	}
@@ -61,14 +77,27 @@ func GetEventByIdHandler(w http.ResponseWriter, r *http.Request) {
 	if !validations.ValidateContext(w, r) {
 		return
 	}
-	eventsSql := "SELECT event_uid, event_type, date, event_types.type_name, event_name, events_state.event_state,events_state.event_state_type,  address, coordinates FROM events INNER JOIN event_types ON events.event_type = event_types.event_type_uid INNER JOIN events_state ON events.event_state_uid = events_state.event_state_uid WHERE event_uid = $1"
+	tzRequested := r.URL.Query().Get("time_zone")
+	var convertLoc *time.Location
+	if tzRequested != "" {
+		loc, err := time.LoadLocation(tzRequested)
+		if err != nil {
+			helpers.BadRequestResponse(w, "Invalid time_zone", err, "INVALID_TIME_ZONE")
+			return
+		}
+		convertLoc = loc
+	}
+	eventsSql := "SELECT event_uid, event_type, date, events.time_zone, event_types.type_name, event_name, events_state.event_state,events_state.event_state_type,  address, coordinates FROM events INNER JOIN event_types ON events.event_type = event_types.event_type_uid INNER JOIN events_state ON events.event_state_uid = events_state.event_state_uid WHERE event_uid = $1"
 	vars := mux.Vars(r)
 
 	eventData := db.DB.QueryRow(eventsSql, vars["id"])
 
 	currentEvent := models.EventDetail{}
 
-	eventData.Scan(&currentEvent.Event_uid, &currentEvent.Event_type_uid, &currentEvent.Date, &currentEvent.Type_name, &currentEvent.Event_name, &currentEvent.Event_state, &currentEvent.Event_state_type, &currentEvent.Address, &currentEvent.Coordinates)
+	eventData.Scan(&currentEvent.Event_uid, &currentEvent.Event_type_uid, &currentEvent.Date, &currentEvent.TimeZone, &currentEvent.Type_name, &currentEvent.Event_name, &currentEvent.Event_state, &currentEvent.Event_state_type, &currentEvent.Address, &currentEvent.Coordinates)
+	if convertLoc != nil {
+		currentEvent.Date = currentEvent.Date.In(convertLoc)
+	}
 
 	helpers.SuccessResponse(w, "succes", currentEvent)
 }
@@ -123,9 +152,25 @@ func NewEventHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	new_uuid := uuid.New()
-	eventsSql := "INSERT INTO \"events\"( event_uid, \"event_type\", \"date\", \"event_name\", \"event_state_uid\", \"address\", \"coordinates\") VALUES ($1, $2, $3, $4, $5, $6, $7)"
+	timeZone := event.TimeZone
+	if timeZone == "" {
+		timeZone = "America/Cancun"
+	}
+	// Validate IANA zone so we can store it and deliver events in any timezone.
+	if _, err := time.LoadLocation(timeZone); err != nil {
+		helpers.BadRequestResponse(w, "Invalid time_zone", err, "INVALID_TIME_ZONE")
+		return
+	}
+	// date is a TIMESTAMPTZ instant (go's time.Time from RFC3339, e.g. 2026-11-10T20:00:00-05:00).
+	// The IANA name in time_zone is kept as provenance so the same instant can be
+	// re-rendered in other zones on read (e.g. ?time_zone=America/Mexico_City).
+	eventsSql := "INSERT INTO \"events\"( event_uid, \"event_type\", \"date\", \"time_zone\", \"event_name\", \"event_state_uid\", \"address\", \"coordinates\", \"entity_uid\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
 
-	_, err := db.DB.Exec(eventsSql, new_uuid.String(), event.Event_type_uid, event.Date, event.Event_name, event.Event_state_uid, event.Address, event.Coordinates)
+	var entityUID interface{}
+	if strings.TrimSpace(event.EntityUID) != "" {
+		entityUID = event.EntityUID
+	}
+	_, err := db.DB.Exec(eventsSql, new_uuid.String(), event.Event_type_uid, event.Date, timeZone, event.Event_name, event.Event_state_uid, event.Address, event.Coordinates, entityUID)
 
 	if err != nil {
 		helpers.BadRequestResponse(
@@ -177,6 +222,13 @@ func EditEventHandler(w http.ResponseWriter, r *http.Request) {
 	if event.Date != nil {
 		addField("date", *event.Date)
 	}
+	if event.TimeZone != nil {
+		if _, err := time.LoadLocation(*event.TimeZone); err != nil {
+			helpers.BadRequestResponse(w, "Invalid time_zone", err, "INVALID_TIME_ZONE")
+			return
+		}
+		addField("time_zone", *event.TimeZone)
+	}
 	if event.Event_state_uid != nil {
 		addField("event_state_uid", *event.Event_state_uid)
 	}
@@ -220,7 +272,7 @@ func GetEventsByMonthHandler(w http.ResponseWriter, r *http.Request) {
 	dateStr := r.URL.Query().Get("date")         // e.g., "2025-06-01"
 	entityStr := r.URL.Query().Get("entity_uid") // e.g., "2025-06-01"
 	if len(entityStr) == 0 {
-		helpers.BadRequestResponse(w, "Entity is required", errors.New("No entity"), "ENTITY_REQUIRED")
+		helpers.BadRequestResponse(w, "Entity is required", errors.New("Entity is required"), "ENTITY_REQUIRED")
 		return
 	}
 
@@ -230,18 +282,25 @@ func GetEventsByMonthHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the first day of the month
-	startOfMonth := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, time.UTC)
+	timeZone := r.URL.Query().Get("time_zone")
+	if timeZone == "" {
+		timeZone = "America/Cancun"
+	}
+	loc, err := time.LoadLocation(timeZone)
+	if err != nil {
+		helpers.BadRequestResponse(w, "Invalid time_zone", err, "INVALID_TIME_ZONE")
+		return
+	}
 
-	// Get the last day of the month by going to the first day of the next month and subtracting a day
-	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Nanosecond)
+	startOfMonth := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, loc)
+	endOfMonth := startOfMonth.AddDate(0, 1, 0)
 
-	eventsSql := "SELECT event_uid, event_type, date, event_name, event_types.type_name, events_state.event_state FROM events INNER JOIN event_types ON events.event_type = event_types.event_type_uid INNER JOIN events_state ON events.event_state_uid = events_state.event_state_uid WHERE entity_uid = $1  AND events.date >= $2 AND events.date < $3;"
+	eventsSql := queries.EventsByMonth
 	events := models.Events{}
-	// var googleEvents []map[string]interface{}
 
-	startOfMonthFormated := startOfMonth.Format("2006-01-02T15:04:05Z")
-	endOfMonthFormated := endOfMonth.Format("2006-01-02T15:04:05Z")
+	// RFC3339 with offset so Postgres compares instants (TIMESTAMPTZ) correctly.
+	startOfMonthFormated := startOfMonth.Format(time.RFC3339)
+	endOfMonthFormated := endOfMonth.Format(time.RFC3339)
 
 	datos, err := db.DB.Query(eventsSql, entityStr, startOfMonthFormated, endOfMonthFormated)
 
@@ -254,11 +313,14 @@ func GetEventsByMonthHandler(w http.ResponseWriter, r *http.Request) {
 
 	for datos.Next() {
 		dato := models.Event{}
-		err := datos.Scan(&dato.Event_uid, &dato.Event_type_uid, &dato.Date, &dato.Event_name, &dato.Type_name, &dato.Event_state)
+		err := datos.Scan(&dato.Event_uid, &dato.Event_type_uid, &dato.Date_start, &dato.Date_end, &dato.TimeZone, &dato.Event_name, &dato.Type_name, &dato.Event_state)
 		if err != nil {
 			helpers.BadRequestResponse(w, "Error scanning", err, "DATA_ERROR")
 			return
 		}
+		// Deliver the same instant in the requested timezone.
+		dato.Date_start = dato.Date_start.In(loc)
+		dato.Date_end = dato.Date_end.In(loc)
 		events = append(events, dato)
 	}
 

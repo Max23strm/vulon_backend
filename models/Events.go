@@ -5,7 +5,9 @@ import "time"
 type Event struct {
 	Event_uid        string    `json:"event_uid"`
 	Event_type_uid   string    `json:"event_type_uid"`
-	Date             time.Time `json:"date"`
+	Date_start       time.Time `json:"date_start"`
+	Date_end         time.Time `json:"date_end"`
+	TimeZone         string    `json:"time_zone"`
 	Event_name       string    `json:"event_name"`
 	Type_name        string    `json:"type_name"`
 	Event_state      string    `json:"event_state"`
@@ -16,6 +18,7 @@ type EventDetail struct {
 	Event_uid        string    `json:"event_uid"`
 	Event_type_uid   string    `json:"event_type_uid"`
 	Date             time.Time `json:"event_date"`
+	TimeZone         string    `json:"time_zone"`
 	Event_name       string    `json:"event_name"`
 	Type_name        string    `json:"event_type_name"`
 	Event_state      int8      `json:"event_state"`
@@ -28,6 +31,8 @@ type EventPost struct {
 	Event_uid       string    `json:"event_uid"`
 	Event_type_uid  string    `json:"event_type_uid"`
 	Date            time.Time `json:"event_date"`
+	TimeZone        string    `json:"time_zone"`
+	EntityUID       string    `json:"entity_uid"`
 	Event_name      string    `json:"event_name"`
 	Event_state_uid string    `json:"event_state_uid"`
 	Address         *string   `json:"address,omitempty"`
@@ -37,6 +42,7 @@ type EventPost struct {
 type EventUpdate struct {
 	Event_type_uid  *string    `json:"event_type_uid,omitempty"`
 	Date            *time.Time `json:"event_date,omitempty"`
+	TimeZone        *string    `json:"time_zone,omitempty"`
 	Event_name      *string    `json:"event_name,omitempty"`
 	Event_state_uid *string    `json:"event_state_uid,omitempty"`
 	Address         *string    `json:"address,omitempty"`
