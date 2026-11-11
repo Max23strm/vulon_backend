@@ -84,6 +84,7 @@ func main() {
 
 	//EVENTS
 	r.HandleFunc(baseUrl+"/events", routes.GetEventsHandler).Methods("GET")
+	r.HandleFunc(baseUrl+"/events/closestEvent", routes.GetClosestEvent).Methods("GET")
 	r.HandleFunc(baseUrl+"/events/eventById/{id}", routes.GetEventByIdHandler).Methods("GET")
 	r.HandleFunc(baseUrl+"/events/newEvent", routes.NewEventHandler).Methods("POST")
 	r.HandleFunc(baseUrl+"/events/editEvent/{id}", routes.EditEventHandler).Methods("PUT")

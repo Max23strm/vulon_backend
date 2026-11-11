@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -263,6 +264,77 @@ func EditEventHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	helpers.SuccessResponse(w, "success", event_uid)
+}
+
+func GetClosestEvent(w http.ResponseWriter, r *http.Request) {
+	if !validations.ValidateContext(w, r) {
+		return
+	}
+	dateStr := r.URL.Query().Get("date")         // e.g., "2025-06-01"
+	entityStr := r.URL.Query().Get("entity_uid") // e.g., "entity UUID"
+	if len(entityStr) == 0 {
+		helpers.BadRequestResponse(w, "Entity is required", errors.New("Entity is required"), "ENTITY_REQUIRED")
+		return
+	}
+
+	date, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		helpers.BadRequestResponse(w, "Invalid date format. Use YYYY-MM-DD", err, "INVALID_DATE")
+		return
+	}
+
+	timeZone := r.URL.Query().Get("time_zone")
+	if timeZone == "" {
+		timeZone = "America/Cancun"
+	}
+	loc, err := time.LoadLocation(timeZone)
+	if err != nil {
+		helpers.BadRequestResponse(w, "Invalid time_zone", err, "INVALID_TIME_ZONE")
+		return
+	}
+
+	targetDate := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, loc)
+	eventsSql := `SELECT
+		event_uid,
+		event_type,
+		date_start,
+		date_end,
+		events.time_zone,
+		event_name,
+		event_types.type_name,
+		events_state.event_state
+	FROM events
+	INNER JOIN event_types ON events.event_type = event_types.event_type_uid
+	INNER JOIN events_state ON events.event_state_uid = events_state.event_state_uid
+	WHERE entity_uid = $1
+	ORDER BY ABS(EXTRACT(EPOCH FROM (date_start - $2::timestamptz))) ASC, date_start ASC
+	LIMIT 1`
+
+	event := models.Event{}
+	err = db.DB.QueryRow(eventsSql, entityStr, targetDate).Scan(
+		&event.Event_uid,
+		&event.Event_type_uid,
+		&event.Date_start,
+		&event.Date_end,
+		&event.TimeZone,
+		&event.Event_name,
+		&event.Type_name,
+		&event.Event_state,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			helpers.SuccessResponse(w, "success", nil)
+			return
+		}
+		fmt.Println(err)
+		helpers.InternalServerErrorResponse(w, "Petition error")
+		return
+	}
+
+	// Deliver the same instants in the requested timezone.
+	event.Date_start = event.Date_start.In(loc)
+	event.Date_end = event.Date_end.In(loc)
+	helpers.SuccessResponse(w, "success", event)
 }
 
 func GetEventsByMonthHandler(w http.ResponseWriter, r *http.Request) {
